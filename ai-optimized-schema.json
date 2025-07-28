@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AI-Optimized Product Schema",
+  "description": "Enhanced product schema optimized for AI agents to answer detailed product questions",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Unique product identifier"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Human-readable product summary"
+        },
+        "structured_data": {
+          "type": "object",
+          "description": "AI-friendly structured product attributes",
+          "properties": {
+            "basic_info": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "article": {"type": "string"},
+                "brand": {"type": "string", "default": "Held"},
+                "category": {"type": "string"},
+                "subcategory": {"type": "string"},
+                "product_type": {"type": "string"},
+                "form": {"type": "string"},
+                "ean": {"type": "string"}
+              }
+            },
+            "physical_attributes": {
+              "type": "object",
+              "properties": {
+                "sizes": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Available sizes"
+                },
+                "colors": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Available colors"
+                },
+                "materials": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "type": {"type": "string", "enum": ["outer", "lining", "padding", "membrane", "reinforcement"]},
+                      "percentage": {"type": "number"}
+                    }
+                  }
+                },
+                "weight": {"type": "string"},
+                "dimensions": {"type": "string"}
+              }
+            },
+            "features": {
+              "type": "object",
+              "properties": {
+                "protection": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Safety and protection features"
+                },
+                "comfort": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Comfort features"
+                },
+                "weather": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Weather-related features"
+                },
+                "ventilation": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Ventilation and airflow features"
+                },
+                "storage": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Pockets and storage options"
+                },
+                "adjustability": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Adjustable components"
+                },
+                "certifications": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Safety certifications and standards"
+                }
+              }
+            },
+            "technical_specs": {
+              "type": "object",
+              "properties": {
+                "waterproof": {"type": "boolean"},
+                "windproof": {"type": "boolean"},
+                "breathable": {"type": "boolean"},
+                "insulated": {"type": "boolean"},
+                "removable_lining": {"type": "boolean"},
+                "armor_ready": {"type": "boolean"},
+                "reflective_elements": {"type": "boolean"},
+                "temperature_rating": {"type": "string"}
+              }
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "intended_use": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Intended usage scenarios"
+                },
+                "season": {
+                  "type": "array",
+                  "items": {"type": "string", "enum": ["spring", "summer", "autumn", "winter", "all-season"]}
+                },
+                "riding_style": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Suitable riding styles"
+                },
+                "target_audience": {"type": "string"}
+              }
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "article": {"type": "string"},
+            "price": {"type": "number"},
+            "currency": {"type": "string", "default": "EUR"},
+            "url": {"type": "string"},
+            "stock": {"type": "integer"},
+            "available": {"type": "boolean"},
+            "last_updated": {"type": "string", "format": "date-time"},
+            "ai_searchable_tags": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Tags optimized for AI search and filtering"
+            },
+            "semantic_keywords": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Keywords for semantic search"
+            },
+            "consolidated_from_fragments": {"type": "integer"},
+            "source_lines": {
+              "type": "array",
+              "items": {"type": "integer"}
+            }
+          }
+        }
+      }
+    },
+    "vector": {
+      "type": "array",
+      "items": {"type": "number"},
+      "description": "Vector embedding for semantic search"
+    }
+  },
+  "required": ["id", "payload"]
+}

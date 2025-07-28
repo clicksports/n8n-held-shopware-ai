@@ -1,0 +1,15 @@
+{
+  "name": "n8n-held-shopware",
+  "version": "1.0.0",
+  "description": "This solution addresses the issue of fragmented product data being stored across multiple vector database points by consolidating content and metadata into unified product records.",
+  "main": "consolidate-products.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.11.0"
+  }
+}

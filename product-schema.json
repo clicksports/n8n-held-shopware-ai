@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Consolidated Product Schema",
+  "description": "Unified schema for storing product content and metadata together",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique product identifier"
+    },
+    "content": {
+      "type": "object",
+      "properties": {
+        "article": {
+          "type": "string",
+          "description": "Article number with variant info"
+        },
+        "form": {
+          "type": "string",
+          "description": "Product form number"
+        },
+        "size": {
+          "type": "string",
+          "description": "Product size"
+        },
+        "mainArticle": {
+          "type": "string",
+          "description": "Main article number"
+        },
+        "ean": {
+          "type": "string",
+          "description": "European Article Number"
+        },
+        "price": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "number"
+            },
+            "currency": {
+              "type": "string",
+              "default": "EUR"
+            }
+          }
+        },
+        "stock": {
+          "type": "integer",
+          "description": "Available stock quantity"
+        },
+        "available": {
+          "type": "boolean",
+          "description": "Product availability status"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Product URL"
+        },
+        "name": {
+          "type": "string",
+          "description": "Product display name"
+        }
+      },
+      "required": ["article", "mainArticle", "ean", "price", "stock", "available"]
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Data source identifier"
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": ["blob", "api", "file", "manual"],
+          "description": "Type of data source"
+        },
+        "blobType": {
+          "type": "string",
+          "description": "MIME type for blob sources"
+        },
+        "location": {
+          "type": "object",
+          "properties": {
+            "line": {
+              "type": "integer"
+            },
+            "lines": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "integer"
+                },
+                "to": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "timestamps": {
+          "type": "object",
+          "properties": {
+            "created": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updated": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "imported": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "hash": {
+          "type": "string",
+          "description": "Content hash for change detection"
+        }
+      },
+      "required": ["source", "sourceType"]
+    },
+    "vectors": {
+      "type": "object",
+      "description": "Vector embeddings for the product",
+      "properties": {
+        "default": {
+          "type": "object",
+          "properties": {
+            "vector": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "length": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["id", "content", "metadata"]
+}
