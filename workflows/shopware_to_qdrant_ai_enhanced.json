@@ -1,0 +1,19 @@
+{
+  "id": "workflow-123",
+  "name": "Shopware to Qdrant - AI Enhanced",
+  "version": "1.0.0",
+  "versionHistory": [],
+  "meta": {
+    "lastSync": "2025-07-28T20:26:12.150Z",
+    "syncSource": "n8n-workflow-sync",
+    "changes": [
+      "initial_version"
+    ]
+  },
+  "tags": [
+    "v1.0.0",
+    "ai-enhanced",
+    "shopware",
+    "qdrant"
+  ]
+}
