@@ -1,0 +1,316 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Enhanced AI-Optimized Product Schema with Shopware API Data",
+  "description": "Comprehensive product schema integrating all relevant Shopware API data for AI chatbot optimization",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Unique product identifier"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string", 
+          "description": "Human-readable comprehensive product summary"
+        },
+        "structured_data": {
+          "type": "object",
+          "description": "AI-friendly structured product attributes",
+          "properties": {
+            "basic_info": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "article": {"type": "string"},
+                "sku": {"type": "string"},
+                "brand": {"type": "string"},
+                "manufacturer": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "country": {"type": "string"},
+                    "established": {"type": "string"},
+                    "specialties": {"type": "array", "items": {"type": "string"}},
+                    "warranty": {"type": "string"}
+                  }
+                },
+                "category": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"type": "string"},
+                    "path": {"type": "string"},
+                    "level": {"type": "integer"},
+                    "seo_keywords": {"type": "array", "items": {"type": "string"}}
+                  }
+                },
+                "ean": {"type": "string"},
+                "form": {"type": "string"}
+              }
+            },
+            "variants": {
+              "type": "array",
+              "description": "All available product variants",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "sku": {"type": "string"},
+                  "size": {"type": "string"},
+                  "color": {"type": "string"},
+                  "price": {"type": "number"},
+                  "stock": {"type": "integer"},
+                  "available": {"type": "boolean"},
+                  "images": {"type": "array", "items": {"type": "string"}},
+                  "specific_features": {"type": "array", "items": {"type": "string"}}
+                }
+              }
+            },
+            "physical_attributes": {
+              "type": "object",
+              "properties": {
+                "sizes_available": {"type": "array", "items": {"type": "string"}},
+                "colors_available": {"type": "array", "items": {"type": "string"}},
+                "materials": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "type": {"type": "string"},
+                      "percentage": {"type": "number"},
+                      "properties": {"type": "array", "items": {"type": "string"}}
+                    }
+                  }
+                },
+                "weight": {"type": "string"},
+                "dimensions": {"type": "string"}
+              }
+            },
+            "technical_specifications": {
+              "type": "object",
+              "properties": {
+                "protection_level": {"type": "string"},
+                "ce_certification": {"type": "string"},
+                "waterproof_rating": {"type": "string"},
+                "windproof": {"type": "boolean"},
+                "breathable": {"type": "boolean"},
+                "insulated": {"type": "boolean"},
+                "removable_lining": {"type": "boolean"},
+                "armor_ready": {"type": "boolean"},
+                "reflective_elements": {"type": "boolean"},
+                "temperature_rating": {"type": "string"},
+                "custom_properties": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "value": {"type": "string"},
+                      "group": {"type": "string"},
+                      "unit": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            },
+            "features": {
+              "type": "object",
+              "properties": {
+                "protection": {"type": "array", "items": {"type": "string"}},
+                "comfort": {"type": "array", "items": {"type": "string"}},
+                "weather": {"type": "array", "items": {"type": "string"}},
+                "ventilation": {"type": "array", "items": {"type": "string"}},
+                "storage": {"type": "array", "items": {"type": "string"}},
+                "adjustability": {"type": "array", "items": {"type": "string"}},
+                "certifications": {"type": "array", "items": {"type": "string"}},
+                "unique_features": {"type": "array", "items": {"type": "string"}}
+              }
+            },
+            "usage_context": {
+              "type": "object",
+              "properties": {
+                "intended_use": {"type": "array", "items": {"type": "string"}},
+                "seasons": {"type": "array", "items": {"type": "string"}},
+                "riding_styles": {"type": "array", "items": {"type": "string"}},
+                "target_audience": {"type": "string"},
+                "experience_level": {"type": "array", "items": {"type": "string"}}
+              }
+            },
+            "social_proof": {
+              "type": "object",
+              "description": "Reviews and ratings data",
+              "properties": {
+                "rating_summary": {
+                  "type": "object",
+                  "properties": {
+                    "average_rating": {"type": "number"},
+                    "total_reviews": {"type": "integer"},
+                    "rating_distribution": {
+                      "type": "object",
+                      "properties": {
+                        "5_star": {"type": "integer"},
+                        "4_star": {"type": "integer"},
+                        "3_star": {"type": "integer"},
+                        "2_star": {"type": "integer"},
+                        "1_star": {"type": "integer"}
+                      }
+                    }
+                  }
+                },
+                "review_insights": {
+                  "type": "object",
+                  "properties": {
+                    "common_praise": {"type": "array", "items": {"type": "string"}},
+                    "common_complaints": {"type": "array", "items": {"type": "string"}},
+                    "sentiment_score": {"type": "number"},
+                    "verified_purchase_percentage": {"type": "number"}
+                  }
+                },
+                "user_demographics": {
+                  "type": "object",
+                  "properties": {
+                    "primary_user_type": {"type": "string"},
+                    "experience_levels": {"type": "array", "items": {"type": "string"}},
+                    "use_cases": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
+              }
+            },
+            "relationships": {
+              "type": "object",
+              "description": "Product relationships and recommendations",
+              "properties": {
+                "cross_sells": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "product_id": {"type": "string"},
+                      "name": {"type": "string"},
+                      "relationship": {"type": "string"},
+                      "compatibility_score": {"type": "number"},
+                      "reason": {"type": "string"}
+                    }
+                  }
+                },
+                "alternatives": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "product_id": {"type": "string"},
+                      "name": {"type": "string"},
+                      "price_difference": {"type": "number"},
+                      "key_differences": {"type": "array", "items": {"type": "string"}},
+                      "similarity_score": {"type": "number"}
+                    }
+                  }
+                },
+                "bundles": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "products": {"type": "array", "items": {"type": "string"}},
+                      "savings": {"type": "number"},
+                      "popularity": {"type": "number"}
+                    }
+                  }
+                }
+              }
+            },
+            "media": {
+              "type": "object",
+              "properties": {
+                "images": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "url": {"type": "string"},
+                      "alt_text": {"type": "string"},
+                      "type": {"type": "string"},
+                      "position": {"type": "integer"},
+                      "variants": {"type": "array", "items": {"type": "string"}},
+                      "ai_description": {"type": "string"}
+                    }
+                  }
+                },
+                "videos": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "url": {"type": "string"},
+                      "title": {"type": "string"},
+                      "duration": {"type": "integer"},
+                      "type": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "article": {"type": "string"},
+            "price_range": {
+              "type": "object",
+              "properties": {
+                "min": {"type": "number"},
+                "max": {"type": "number"},
+                "currency": {"type": "string"}
+              }
+            },
+            "url": {"type": "string"},
+            "availability": {
+              "type": "object",
+              "properties": {
+                "in_stock": {"type": "boolean"},
+                "total_stock": {"type": "integer"},
+                "low_stock": {"type": "boolean"},
+                "expected_restock": {"type": "string"}
+              }
+            },
+            "last_updated": {"type": "string", "format": "date-time"},
+            "data_sources": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "API endpoints used to build this record"
+            },
+            "ai_optimization": {
+              "type": "object",
+              "properties": {
+                "searchable_tags": {"type": "array", "items": {"type": "string"}},
+                "semantic_keywords": {"type": "array", "items": {"type": "string"}},
+                "intent_categories": {"type": "array", "items": {"type": "string"}},
+                "comparison_attributes": {"type": "array", "items": {"type": "string"}},
+                "recommendation_factors": {"type": "array", "items": {"type": "string"}}
+              }
+            },
+            "sync_info": {
+              "type": "object",
+              "properties": {
+                "last_sync": {"type": "string", "format": "date-time"},
+                "sync_source": {"type": "string"},
+                "data_version": {"type": "string"},
+                "next_sync": {"type": "string", "format": "date-time"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "vector": {
+      "type": "array",
+      "items": {"type": "number"},
+      "description": "Enhanced vector embedding incorporating all product data"
+    }
+  },
+  "required": ["id", "payload"]
+}

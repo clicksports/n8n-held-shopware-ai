@@ -1,0 +1,303 @@
+{
+  "name": "Shopware to Qdrant - AI Enhanced Version",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sync-products",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "merge-data",
+      "name": "Merge Product Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "={{ $node[\"Get Products\"].json[\"data\"][\"id\"] }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "includes[product]",
+              "value": "id,name,productNumber,description,price,stock,availableStock,manufacturerId,categoryIds,propertyIds,tagIds,media,customFields"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-product-details",
+      "name": "Get Product Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/product/{{ $node[\"Get Products\"].json[\"data\"][\"id\"] }}/variants",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "includes[product]",
+              "value": "id,productNumber,price,stock,options,media"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-product-variants",
+      "name": "Get Product Variants",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/product-review",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter[productId]",
+              "value": "={{ $node[\"Get Products\"].json[\"data\"][\"id\"] }}"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "includes[product-review]",
+              "value": "id,title,content,points,status,createdAt"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-product-reviews",
+      "name": "Get Product Reviews",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        600,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/category",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"filter\": [{\n    \"type\": \"equalsAny\",\n    \"field\": \"id\",\n    \"value\": $node[\"Get Product Details\"].json[\"data\"][\"categoryIds\"] || []\n  }],\n  \"includes\": {\n    \"category\": [\"id\", \"name\", \"path\", \"level\", \"description\", \"keywords\"]\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "get-product-categories",
+      "name": "Get Product Categories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        600,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/product-manufacturer/{{ $node[\"Get Product Details\"].json[\"data\"][\"manufacturerId\"] }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "includes[product-manufacturer]",
+              "value": "id,name,description,link,customFields"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-manufacturer",
+      "name": "Get Manufacturer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        600,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Product Parser - AI Optimization\nconst items = $input.all();\n\nfunction parseProductContent(content) {\n  // Parse article format\n  if (content.startsWith('Article:')) {\n    const parts = content.split(' | ');\n    const parsed = { type: 'product_info' };\n    \n    parts.forEach(part => {\n      const [key, value] = part.split(': ');\n      switch (key?.trim()) {\n        case 'Article':\n          parsed.article = value;\n          break;\n        case 'Form':\n          parsed.form = value;\n          break;\n        case 'Size':\n          parsed.size = value;\n          break;\n        case 'Main Article':\n          parsed.mainArticle = value;\n          break;\n        case 'EAN':\n          parsed.ean = value;\n          break;\n        case 'Price':\n          parsed.price = parseFloat(value.replace('€', ''));\n          break;\n        case 'Stock':\n          parsed.stock = parseInt(value);\n          break;\n        case 'Available':\n          parsed.available = value === 'Yes';\n          break;\n      }\n    });\n    \n    return parsed;\n  }\n  \n  return { type: 'unknown', raw: content };\n}\n\nfunction analyzeReviews(reviews) {\n  if (!reviews || reviews.length === 0) {\n    return {\n      rating_summary: { average_rating: 0, total_reviews: 0 },\n      review_insights: { common_praise: [], common_complaints: [], sentiment_score: 0 },\n      user_demographics: { primary_user_type: 'unknown' }\n    };\n  }\n\n  const totalRating = reviews.reduce((sum, review) => sum + (review.points || 0), 0);\n  const averageRating = totalRating / reviews.length;\n\n  const positiveWords = ['excellent', 'great', 'perfect', 'amazing', 'comfortable', 'durable'];\n  const negativeWords = ['terrible', 'awful', 'uncomfortable', 'cheap', 'poor', 'disappointing'];\n  \n  let positiveCount = 0;\n  let negativeCount = 0;\n  const commonPraise = new Set();\n  const commonComplaints = new Set();\n\n  reviews.forEach(review => {\n    const content = (review.content || '').toLowerCase();\n    const title = (review.title || '').toLowerCase();\n    const fullText = `${content} ${title}`;\n\n    positiveWords.forEach(word => {\n      if (fullText.includes(word)) {\n        positiveCount++;\n        commonPraise.add(word);\n      }\n    });\n\n    negativeWords.forEach(word => {\n      if (fullText.includes(word)) {\n        negativeCount++;\n        commonComplaints.add(word);\n      }\n    });\n  });\n\n  return {\n    rating_summary: {\n      average_rating: Number(averageRating.toFixed(1)),\n      total_reviews: reviews.length\n    },\n    review_insights: {\n      common_praise: Array.from(commonPraise).slice(0, 5),\n      common_complaints: Array.from(commonComplaints).slice(0, 5),\n      sentiment_score: positiveCount / (positiveCount + negativeCount + 1),\n      verified_purchase_percentage: 0.8\n    },\n    user_demographics: {\n      primary_user_type: 'motorcyclist',\n      experience_levels: ['beginner', 'intermediate', 'expert'],\n      use_cases: ['touring', 'commuting', 'sport_riding']\n    }\n  };\n}\n\nfunction generateAITags(product, reviews, categories) {\n  const tags = new Set();\n  const keywords = new Set();\n  \n  // Basic tags\n  if (product.name) {\n    product.name.split(' ').forEach(word => {\n      if (word.length > 2) keywords.add(word.toLowerCase());\n    });\n  }\n  \n  // Category tags\n  if (categories && categories.length > 0) {\n    categories.forEach(cat => {\n      if (cat.name) {\n        tags.add(`category_${cat.name.toLowerCase().replace(/\\s+/g, '_')}`);\n        keywords.add(cat.name.toLowerCase());\n      }\n    });\n  }\n  \n  // Review-based tags\n  if (reviews && reviews.length > 0) {\n    const avgRating = reviews.reduce((sum, r) => sum + (r.points || 0), 0) / reviews.length;\n    if (avgRating >= 4) tags.add('highly_rated');\n  }\n  \n  // Brand tag\n  tags.add('brand_held');\n  keywords.add('held');\n  \n  return {\n    searchable_tags: Array.from(tags),\n    semantic_keywords: Array.from(keywords)\n  };\n}\n\n// Process all data\nconst processedItems = [];\n\nitems.forEach((item, index) => {\n  const productData = item.json;\n  \n  // Extract data from merged sources\n  const product = productData.product?.data || {};\n  const variants = productData.variants?.data || [];\n  const reviews = productData.reviews?.data || [];\n  const categories = productData.categories?.data || [];\n  const manufacturer = productData.manufacturer?.data || {};\n  \n  // Transform variants\n  const transformedVariants = variants.map(variant => ({\n    sku: variant.productNumber,\n    price: variant.price?.[0]?.gross || 0,\n    stock: variant.availableStock || 0,\n    available: (variant.availableStock || 0) > 0\n  }));\n  \n  // Analyze reviews\n  const reviewInsights = analyzeReviews(reviews);\n  \n  // Generate AI tags\n  const aiTags = generateAITags(product, reviews, categories);\n  \n  // Calculate price range\n  const prices = transformedVariants.map(v => v.price).filter(p => p > 0);\n  const priceRange = prices.length > 0 ? {\n    min: Math.min(...prices),\n    max: Math.max(...prices),\n    currency: 'EUR'\n  } : { min: 0, max: 0, currency: 'EUR' };\n  \n  // Create enhanced content\n  const contentParts = [];\n  if (product.name) contentParts.push(`Product: ${product.name}`);\n  if (product.productNumber) contentParts.push(`Article: ${product.productNumber}`);\n  if (manufacturer.name) contentParts.push(`Brand: ${manufacturer.name}`);\n  if (categories.length > 0) contentParts.push(`Category: ${categories[0].name}`);\n  if (reviewInsights.rating_summary.total_reviews > 0) {\n    contentParts.push(`Rating: ${reviewInsights.rating_summary.average_rating}★ (${reviewInsights.rating_summary.total_reviews} reviews)`);\n  }\n  if (product.description) {\n    contentParts.push(`Description: ${product.description.substring(0, 200)}...`);\n  }\n  \n  // Create AI-optimized product\n  const enhancedProduct = {\n    id: parseInt(product.id) || index + 1,\n    payload: {\n      content: contentParts.join(' | '),\n      structured_data: {\n        basic_info: {\n          name: product.name,\n          article: product.productNumber,\n          brand: manufacturer.name || 'Held',\n          manufacturer: manufacturer.name ? {\n            name: manufacturer.name,\n            description: manufacturer.description,\n            country: manufacturer.customFields?.country || 'Germany'\n          } : null,\n          category: categories.length > 0 ? {\n            name: categories[0].name,\n            path: categories[0].name,\n            level: categories[0].level\n          } : null\n        },\n        variants: transformedVariants,\n        technical_specifications: {\n          waterproof: false,\n          windproof: false,\n          breathable: false,\n          armor_ready: false\n        },\n        social_proof: reviewInsights,\n        usage_context: {\n          intended_use: ['motorcycle_riding'],\n          seasons: ['all_season'],\n          target_audience: 'motorcyclists'\n        }\n      },\n      metadata: {\n        article: product.productNumber,\n        price_range: priceRange,\n        availability: {\n          in_stock: (product.availableStock || 0) > 0,\n          total_stock: product.availableStock || 0,\n          low_stock: (product.availableStock || 0) < 10\n        },\n        last_updated: new Date().toISOString(),\n        ai_optimization: aiTags\n      }\n    },\n    vector: Array.from({length: 1536}, () => Math.random()) // Placeholder vector\n  };\n  \n  processedItems.push(enhancedProduct);\n});\n\nreturn processedItems;"
+      },
+      "id": "ai-enhanced-parser",
+      "name": "AI Enhanced Parser",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_products",
+        "httpMethod": "DELETE",
+        "options": {}
+      },
+      "id": "delete-qdrant-collection",
+      "name": "Delete Qdrant Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_products",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"vectors\": {\n    \"size\": 1536,\n    \"distance\": \"Cosine\"\n  }\n}",
+        "options": {}
+      },
+      "id": "create-qdrant-collection",
+      "name": "Create Qdrant Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1600,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_products/points",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ points: $json }) }}",
+        "options": {}
+      },
+      "id": "upload-to-qdrant",
+      "name": "Upload to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1600,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "respond-to-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1800,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"limit\": 50,\n  \"filter\": [{\n    \"type\": \"equals\",\n    \"field\": \"active\",\n    \"value\": true\n  }],\n  \"includes\": {\n    \"product\": [\"id\", \"name\", \"productNumber\", \"description\", \"active\", \"stock\", \"availableStock\", \"price\", \"manufacturerId\", \"categoryIds\", \"propertyIds\", \"updatedAt\"]\n  },\n  \"sort\": [{\n    \"field\": \"updatedAt\",\n    \"order\": \"DESC\"\n  }]\n}",
+        "options": {}
+      },
+      "id": "get-products",
+      "name": "Get Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-products",
+      "name": "Split Products",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        600,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all fetched data for each product\nconst productDetails = $node[\"Get Product Details\"].json?.data || {};\nconst variants = $node[\"Get Product Variants\"].json?.data || [];\nconst reviews = $node[\"Get Product Reviews\"].json?.data || [];\nconst categories = $node[\"Get Product Categories\"].json?.data || [];\nconst manufacturer = $node[\"Get Manufacturer\"].json?.data || {};\n\nreturn [{\n  json: {\n    product: { data: productDetails },\n    variants: { data: variants },\n    reviews: { data: reviews },\n    categories: { data: categories },\n    manufacturer: { data: manufacturer }\n  }\n}];"
+      },
+      "id": "combine-product-data",
+      "name": "Combine Product Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "collect-all-products",
+      "name": "Collect All Products",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        600
+      ]
+    }
+  ],\n  \"connections\": {\n    \"webhook-trigger\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"get-products\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"get-products\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"split-products\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"split-products\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"get-product-details\",\n            \"type\": \"main\",\n            \"index\": 0\n          },\n          {\n            \"node\": \"get-product-variants\",\n            \"type\": \"main\",\n            \"index\": 0\n          },\n          {\n            \"node\": \"get-product-reviews\",\n            \"type\": \"main\",\n            \"index\": 0\n          },\n          {\n            \"node\": \"get-product-categories\",\n            \"type\": \"main\",\n            \"index\": 0\n          },\n          {\n            \"node\": \"get-manufacturer\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"get-product-details\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"combine-product-data\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"get-product-variants\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"combine-product-data\",\n            \"type\": \"main\",\n            \"index\": 1\n          }\n        ]\n      ]\n    },\n    \"get-product-reviews\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"combine-product-data\",\n            \"type\": \"main\",\n            \"index\": 2\n          }\n        ]\n      ]\n    },\n    \"get-product-categories\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"combine-product-data\",\n            \"type\": \"main\",\n            \"index\": 3\n          }\n        ]\n      ]\n    },\n    \"get-manufacturer\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"combine-product-data\",\n            \"type\": \"main\",\n            \"index\": 4\n          }\n        ]\n      ]\n    },\n    \"combine-product-data\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"collect-all-products\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"collect-all-products\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"ai-enhanced-parser\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"ai-enhanced-parser\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"delete-qdrant-collection\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"delete-qdrant-collection\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"create-qdrant-collection\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"create-qdrant-collection\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"upload-to-qdrant\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"upload-to-qdrant\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"respond-to-webhook\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    }\n  },\n  \"createdAt\": \"2024-07-28T20:30:00.000Z\",\n  \"updatedAt\": \"2024-07-28T20:30:00.000Z\",\n  \"settings\": {\n    \"executionOrder\": \"v1\"\n  },\n  \"staticData\": null,\n  \"meta\": {\n    \"templateCredsSetupCompleted\": true\n  },\n  \"pinData\": {},\n  \"versionId\": \"enhanced-ai-v1\",\n  \"triggerCount\": 0,\n  \"tags\": [\n    {\n      \"createdAt\": \"2024-07-28T20:30:00.000Z\",\n      \"updatedAt\": \"2024-07-28T20:30:00.000Z\",\n      \"id\": \"shopware\",\n      \"name\": \"shopware\"\n    },\n    {\n      \"createdAt\": \"2024-07-28T20:30:00.000Z\",\n      \"updatedAt\": \"2024-07-28T20:30:00.000Z\",\n      \"id\": \"qdrant\",\n      \"name\": \"qdrant\"\n    },\n    {\n      \"createdAt\": \"2024-07-28T20:30:00.000Z\",\n      \"updatedAt\": \"2024-07-28T20:30:00.000Z\",\n      \"id\": \"ai-enhanced\",\n      \"name\": \"ai-enhanced\"\n    }\n  ]\n}
