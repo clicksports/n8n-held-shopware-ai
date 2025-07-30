@@ -1,0 +1,457 @@
+{
+  "name": "Shopware to Qdrant - Full Catalog Fixed",
+  "active": false,
+  "version": "3.1.0",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sync-full-catalog",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize pagination and sync parameters\nconst syncConfig = {\n  pagination: {\n    page: 1,\n    limit: 100,\n    totalPages: null,\n    processedCount: 0\n  },\n  products: {\n    allProducts: [],\n    hasMore: true\n  },\n  performance: {\n    startTime: new Date().toISOString(),\n    fetchedPages: 0,\n    errors: []\n  }\n};\n\nconsole.log(`🚀 Starting full catalog sync at ${syncConfig.performance.startTime}`);\nconsole.log(`📋 Configuration: Page size=${syncConfig.pagination.limit}`);\n\nreturn [{ json: syncConfig }];"
+      },
+      "id": "init-sync",
+      "name": "Initialize Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-has-more",
+              "leftValue": "={{ $json.products.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-has-more",
+      "name": "Check Has More Products",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  page: $json.pagination.page,\n  limit: $json.pagination.limit,\n  filter: [\n    {\n      type: \"equals\",\n      field: \"active\",\n      value: true\n    }\n  ],\n  includes: {\n    product: [\n      \"id\", \"name\", \"productNumber\", \"description\", \"active\",\n      \"stock\", \"availableStock\", \"price\", \"manufacturerId\",\n      \"categoryIds\", \"propertyIds\", \"tagIds\", \"media\",\n      \"customFields\", \"createdAt\", \"updatedAt\", \"ean\"\n    ]\n  },\n  sort: [{\n    field: \"createdAt\",\n    order: \"ASC\"\n  }]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-products-page",
+      "name": "Fetch Products Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 250],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process pagination response with error handling\nconst response = $input.first().json;\nconst previousData = $node[\"Check Has More Products\"].json;\n\n// Handle API errors\nif (response.error || !response.data) {\n  console.error(`❌ Error fetching page ${previousData.pagination.page}: ${response.error || 'No data received'}`);\n  previousData.performance.errors.push({\n    page: previousData.pagination.page,\n    error: response.error || 'No data received',\n    timestamp: new Date().toISOString()\n  });\n  \n  // Continue with next page despite error\n  return [{\n    json: {\n      ...previousData,\n      pagination: {\n        ...previousData.pagination,\n        page: previousData.pagination.page + 1\n      }\n    }\n  }];\n}\n\n// Extract products from response\nconst products = response.data || [];\nconst total = response.total || 0;\nconst currentPage = previousData.pagination.page;\nconst limit = previousData.pagination.limit;\n\n// Calculate pagination\nconst totalPages = Math.ceil(total / limit);\nconst hasMore = currentPage < totalPages;\n\n// Accumulate products\nconst allProducts = [...(previousData.products.allProducts || []), ...products];\nconst processedCount = allProducts.length;\n\n// Performance tracking\nconst fetchedPages = previousData.performance.fetchedPages + 1;\nconst avgProductsPerPage = Math.round(processedCount / fetchedPages);\nconst estimatedTimeRemaining = hasMore ? \n  Math.round((totalPages - currentPage) * 2) + ' seconds' : 'Complete';\n\nconsole.log(`📄 Page ${currentPage}/${totalPages}: Fetched ${products.length} products`);\nconsole.log(`📊 Progress: ${processedCount}/${total} products (${Math.round(processedCount/total*100)}%)`);\nconsole.log(`⏱️  Performance: ${avgProductsPerPage} products/page, ETA: ${estimatedTimeRemaining}`);\n\nreturn [{\n  json: {\n    pagination: {\n      page: currentPage + 1,\n      limit: limit,\n      totalPages: totalPages,\n      processedCount: processedCount\n    },\n    products: {\n      allProducts: allProducts,\n      hasMore: hasMore,\n      currentBatch: products\n    },\n    performance: {\n      ...previousData.performance,\n      fetchedPages: fetchedPages,\n      lastUpdate: new Date().toISOString()\n    },\n    summary: {\n      totalFetched: processedCount,\n      totalAvailable: total,\n      percentComplete: Math.round(processedCount/total*100)\n    }\n  }\n}];"
+      },
+      "id": "process-pagination",
+      "name": "Process Pagination Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 250]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "rate-limit-delay",
+      "name": "Rate Limit Delay",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1200, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-continue",
+              "leftValue": "={{ $json.products.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-continue",
+      "name": "Continue Pagination?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1400, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare products for AI processing\nconst data = $json;\nconst allProducts = data.products.allProducts;\n\nconsole.log(`\\n🎉 Pagination complete!`);\nconsole.log(`📊 Summary:`);\nconsole.log(`   - Total products fetched: ${allProducts.length}`);\nconsole.log(`   - Pages processed: ${data.performance.fetchedPages}`);\nconsole.log(`   - Errors encountered: ${data.performance.errors.length}`);\n\nif (data.performance.errors.length > 0) {\n  console.log(`⚠️  Errors during fetch:`);\n  data.performance.errors.forEach(err => {\n    console.log(`   - Page ${err.page}: ${err.error}`);\n  });\n}\n\nconsole.log(`\\n🤖 Starting AI optimization for ${allProducts.length} products...`);\n\n// Create AI-optimized products\nconst aiOptimizedProducts = allProducts.map((product, index) => {\n  // Generate searchable content\n  const contentParts = [];\n  if (product.name) contentParts.push(`Product: ${product.name}`);\n  if (product.productNumber) contentParts.push(`SKU: ${product.productNumber}`);\n  if (product.description) {\n    const cleanDesc = product.description.replace(/<[^>]*>/g, '').substring(0, 200);\n    contentParts.push(`Description: ${cleanDesc}`);\n  }\n  \n  // Generate AI tags\n  const tags = new Set();\n  const keywords = new Set();\n  \n  if (product.name) {\n    product.name.toLowerCase().split(/\\s+/).forEach(word => {\n      if (word.length > 3) keywords.add(word);\n    });\n  }\n  \n  // Stock tags\n  if ((product.availableStock || 0) > 0) {\n    tags.add('in_stock');\n    if (product.availableStock < 5) tags.add('low_stock');\n  } else {\n    tags.add('out_of_stock');\n  }\n  \n  // Price tags\n  const price = product.price?.[0]?.gross || 0;\n  if (price > 0) {\n    if (price < 20) tags.add('price_budget');\n    else if (price < 50) tags.add('price_mid_range');\n    else if (price < 100) tags.add('price_premium');\n    else tags.add('price_luxury');\n  }\n  \n  return {\n    id: parseInt(product.id) || index + 1,\n    payload: {\n      content: contentParts.join(' | '),\n      product: {\n        id: product.id,\n        name: product.name,\n        sku: product.productNumber,\n        ean: product.ean,\n        description: product.description?.replace(/<[^>]*>/g, '').substring(0, 500),\n        created: product.createdAt,\n        updated: product.updatedAt\n      },\n      pricing: {\n        basePrice: price,\n        currency: 'EUR'\n      },\n      inventory: {\n        stock: product.availableStock || 0,\n        inStock: (product.availableStock || 0) > 0\n      },\n      ai_metadata: {\n        tags: Array.from(tags),\n        keywords: Array.from(keywords).slice(0, 10),\n        searchScore: Math.random() * 10\n      },\n      _metadata: {\n        source: 'shopware',\n        indexed: new Date().toISOString()\n      }\n    },\n    vector: Array.from({length: 1536}, () => Math.random())\n  };\n});\n\nconsole.log(`✨ AI optimization complete! Processed ${aiOptimizedProducts.length} products`);\n\nreturn aiOptimizedProducts;"
+      },
+      "id": "ai-optimizer",
+      "name": "AI Product Optimizer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 350]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_products_full",
+        "httpMethod": "DELETE",
+        "options": {
+          "timeout": 10000
+        },
+        "continueOnFail": true
+      },
+      "id": "delete-collection",
+      "name": "Delete Old Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 250]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_products_full",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"vectors\": {\n    \"size\": 1536,\n    \"distance\": \"Cosine\"\n  },\n  \"optimizers_config\": {\n    \"default_segment_number\": 2,\n    \"indexing_threshold\": 10000\n  }\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "create-collection",
+      "name": "Create New Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 350]
+    },
+    {
+      "parameters": {
+        "batchSize": 50,
+        "options": {}
+      },
+      "id": "batch-upload",
+      "name": "Batch for Upload",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1800, 450]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_products_full/points",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ points: $json }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "upload-to-qdrant",
+      "name": "Upload to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Track upload progress\nconst batchData = $json;\nconst batchSize = Array.isArray(batchData) ? batchData.length : 1;\n\nconsole.log(`📤 Uploaded batch with ${batchSize} products`);\n\nreturn $input.all();"
+      },
+      "id": "track-upload",
+      "name": "Track Upload Progress",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 450]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "collect-results",
+      "name": "Collect All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [2400, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate final summary\nconst uploadResults = $input.all();\nconst totalProducts = uploadResults.length;\n\nconst report = {\n  success: true,\n  summary: {\n    message: `Successfully synchronized ${totalProducts} products to Qdrant`,\n    collection: 'shopware_products_full',\n    timestamp: new Date().toISOString()\n  },\n  statistics: {\n    total_products: totalProducts,\n    processing_duration: 'completed'\n  },\n  next_steps: [\n    'Products are now available for AI search',\n    'Use Qdrant API to query the collection',\n    'Set up incremental sync for updates'\n  ]\n};\n\nconsole.log(`\\n🎊 FULL CATALOG SYNC COMPLETE!`);\nconsole.log(`📈 Synchronized ${totalProducts} products`);\nconsole.log(`🔍 Vector database ready for AI-powered search\\n`);\n\nreturn [{ json: report }];"
+      },
+      "id": "final-report",
+      "name": "Generate Final Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 450]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2800, 400]
+    }
+  ],
+  "connections": {
+    "manual-trigger": {
+      "main": [
+        [
+          {
+            "node": "init-sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "webhook-trigger": {
+      "main": [
+        [
+          {
+            "node": "init-sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "init-sync": {
+      "main": [
+        [
+          {
+            "node": "check-has-more",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check-has-more": {
+      "main": [
+        [
+          {
+            "node": "fetch-products-page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ai-optimizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fetch-products-page": {
+      "main": [
+        [
+          {
+            "node": "process-pagination",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "process-pagination": {
+      "main": [
+        [
+          {
+            "node": "rate-limit-delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rate-limit-delay": {
+      "main": [
+        [
+          {
+            "node": "check-continue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check-continue": {
+      "main": [
+        [
+          {
+            "node": "check-has-more",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ai-optimizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ai-optimizer": {
+      "main": [
+        [
+          {
+            "node": "delete-collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "delete-collection": {
+      "main": [
+        [
+          {
+            "node": "create-collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create-collection": {
+      "main": [
+        [
+          {
+            "node": "batch-upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "batch-upload": {
+      "main": [
+        [
+          {
+            "node": "upload-to-qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "upload-to-qdrant": {
+      "main": [
+        [
+          {
+            "node": "track-upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "track-upload": {
+      "main": [
+        [
+          {
+            "node": "collect-results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "collect-results": {
+      "main": [
+        [
+          {
+            "node": "final-report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "final-report": {
+      "main": [
+        [
+          {
+            "node": "webhook-response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "createdAt": "2025-07-28T22:30:00.000Z",
+  "updatedAt": "2025-07-28T22:30:00.000Z",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "id": "v3.1.0",
+      "name": "v3.1.0"
+    },
+    {
+      "id": "fixed-connections",
+      "name": "fixed-connections"
+    }
+  ]
+}

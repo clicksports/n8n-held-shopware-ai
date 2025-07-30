@@ -1,0 +1,287 @@
+{
+  "name": "⚡ FINAL: Shopware → Qdrant (Native Nodes)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\n\nreturn [{ json: { \n  token: response.access_token, \n  page: 1, \n  limit: 50,\n  allProducts: [],\n  continueLoop: true\n} }];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process pagination\nconst response = $json;\nconst state = $node[\"Initialize\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error:', response.error);\n  return [{ json: {\n    products: state.allProducts,\n    totalProducts: state.allProducts.length,\n    finished: true\n  } }];\n}\n\nconst pageProducts = response.data || [];\nconst apiTotal = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\nconst allProducts = [...state.allProducts, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}: +${pageProducts.length} products`);\nconsole.log(`📊 Total collected: ${allProducts.length}`);\n\n// Check if should continue\nlet shouldContinue = false;\nif (currentPage === 1 && apiTotal === limit) {\n  shouldContinue = pageProducts.length === limit;\n  console.log('⚠️  Using count-based pagination');\n} else {\n  const totalPages = Math.ceil(apiTotal / limit);\n  shouldContinue = currentPage < totalPages && pageProducts.length > 0;\n}\n\nif (shouldContinue) {\n  console.log('✅ Fetching next page...');\n  return [{ json: { \n    token: state.token, \n    page: currentPage + 1, \n    limit: limit, \n    allProducts: allProducts,\n    continueLoop: true,\n    finished: false\n  } }];\n} else {\n  console.log('🏁 All products fetched!');\n  return [{ json: {\n    products: allProducts,\n    totalProducts: allProducts.length,\n    finished: true\n  } }];\n}"
+      },
+      "id": "process-node",
+      "name": "Process Pagination",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Route based on pagination status\nconst data = $json;\n\nif (data.finished) {\n  console.log('🎯 All products fetched, proceeding to Qdrant...');\n  return [{ json: data }];\n} else {\n  console.log('🔄 More pages to fetch...');\n  return [{ json: data }];\n}"
+      },
+      "id": "router-node",
+      "name": "Route Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform products to Qdrant format\nconst data = $json;\nconst products = data.products;\n\nif (!products || products.length === 0) {\n  console.log('❌ No products to upload');\n  return [{ json: { error: 'No products' } }];\n}\n\nconsole.log(`\\n🔄 TRANSFORMING ${products.length} PRODUCTS FOR QDRANT`);\n\n// Generate simple hash-based vector for demo\nfunction simpleVector(text) {\n  const vec = [];\n  for (let i = 0; i < 384; i++) {\n    const hash = ((text || '').charCodeAt(i % (text || 'x').length) * (i + 1)) % 1000;\n    vec.push((hash / 1000) * 2 - 1);\n  }\n  return vec;\n}\n\n// Transform each product\nconst qdrantDocs = products.map((product, idx) => {\n  const text = [\n    product.name,\n    product.productNumber,\n    product.description\n  ].filter(Boolean).join(' ');\n  \n  return {\n    id: idx + 1,\n    vector: simpleVector(text),\n    payload: {\n      product_id: product.id,\n      name: product.name || product.productNumber || 'Unknown',\n      sku: product.productNumber || '',\n      price: product.price?.gross || 0,\n      description: product.description || '',\n      search_text: text,\n      active: product.active !== false,\n      synced_at: new Date().toISOString()\n    }\n  };\n});\n\nconsole.log(`📦 Transformed ${qdrantDocs.length} products`);\nconsole.log('📝 Sample:', {\n  id: qdrantDocs[0].id,\n  vector: '[384 dims]',\n  payload: qdrantDocs[0].payload\n});\n\nreturn qdrantDocs.map(doc => ({ json: doc }));"
+      },
+      "id": "transform-node",
+      "name": "Transform Products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 500]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "collection": "shopware_products",
+        "vectorSize": 384,
+        "distance": "Cosine",
+        "options": {
+          "recreateCollection": true
+        },
+        "url": "http://qdrant:6333"
+      },
+      "id": "create-collection",
+      "name": "Create/Update Collection",
+      "type": "n8n-nodes-community.qdrant.collection",
+      "typeVersion": 1,
+      "position": [1600, 500]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "collection": "shopware_products",
+        "id": "={{ $json.id }}",
+        "vector": "={{ $json.vector }}",
+        "payload": "={{ $json.payload }}",
+        "options": {
+          "wait": true
+        },
+        "url": "http://qdrant:6333"
+      },
+      "id": "upsert-points",
+      "name": "Upsert Products",
+      "type": "n8n-nodes-community.qdrant.point",
+      "typeVersion": 1,
+      "position": [1800, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst total = items.length;\n\nconsole.log('\\n🎉 SHOPWARE → QDRANT SYNC COMPLETE!');\nconsole.log('==========================================');\nconsole.log(`📊 Products uploaded: ${total}`);\nconsole.log(`🔍 Collection: shopware_products`);\nconsole.log(`🌐 Qdrant Dashboard: http://localhost:6333/dashboard`);\nconsole.log(`📐 Vector dimensions: 384`);\n\nconsole.log('\\n✅ SUCCESS! Your products are now searchable in Qdrant!');\nconsole.log('\\n💡 Next steps:');\nconsole.log('   1. Replace demo vectors with real embeddings (OpenAI/Cohere)');\nconsole.log('   2. Connect your AI chatbot to search products');\nconsole.log('   3. Test semantic search in Qdrant dashboard');\n\nreturn [{ json: { \n  success: true,\n  productsUploaded: total,\n  collection: 'shopware_products',\n  timestamp: new Date().toISOString()\n} }];"
+      },
+      "id": "success-node",
+      "name": "Success Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth Token": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Fetch Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Products": {
+      "main": [
+        [
+          {
+            "node": "Process Pagination",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Pagination": {
+      "main": [
+        [
+          {
+            "node": "Route Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Logic": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Transform Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Products": {
+      "main": [
+        [
+          {
+            "node": "Create/Update Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create/Update Collection": {
+      "main": [
+        [
+          {
+            "node": "Upsert Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Products": {
+      "main": [
+        [
+          {
+            "node": "Success Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

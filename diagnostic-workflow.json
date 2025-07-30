@@ -1,0 +1,213 @@
+{
+  "name": "Diagnostic - IF Node Debug",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-start",
+      "name": "Manual Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Test different data types\nconst testCases = [\n  { name: 'boolean_true', hasMore: true },\n  { name: 'string_true', hasMore: 'true' },\n  { name: 'number_1', hasMore: 1 },\n  { name: 'boolean_false', hasMore: false }\n];\n\nconsole.log('🧪 Testing different data types:');\ntestCases.forEach(test => {\n  console.log(`${test.name}: value=${test.hasMore}, type=${typeof test.hasMore}`);\n});\n\n// Return the first test case\nconst testData = testCases[0];\nconsole.log('📤 Returning:', JSON.stringify(testData, null, 2));\n\nreturn [{ json: testData }];"
+      },
+      "id": "create-test-data",
+      "name": "Create Test Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inspect the data before IF node\nconst data = $json;\n\nconsole.log('🔍 BEFORE IF NODE:');\nconsole.log('Full data object:', JSON.stringify(data, null, 2));\nconsole.log('hasMore value:', data.hasMore);\nconsole.log('hasMore type:', typeof data.hasMore);\nconsole.log('hasMore === true:', data.hasMore === true);\nconsole.log('hasMore == true:', data.hasMore == true);\nconsole.log('Boolean(hasMore):', Boolean(data.hasMore));\n\nreturn $input.all();"
+      },
+      "id": "inspect-before",
+      "name": "Inspect Before IF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "test-condition",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "test-if-loose",
+      "name": "Test IF (Loose)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ TRUE BRANCH - Loose validation worked!');\nconsole.log('Received data:', JSON.stringify($json, null, 2));\nreturn $input.all();"
+      },
+      "id": "true-loose",
+      "name": "TRUE (Loose)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('❌ FALSE BRANCH - Even loose validation failed!');\nconsole.log('Received data:', JSON.stringify($json, null, 2));\nreturn $input.all();"
+      },
+      "id": "false-loose",
+      "name": "FALSE (Loose)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "strict-condition",
+              "leftValue": "={{ Boolean($json.hasMore) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "test-if-boolean",
+      "name": "Test IF (Boolean Cast)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ TRUE BRANCH - Boolean cast worked!');\nreturn $input.all();"
+      },
+      "id": "true-boolean",
+      "name": "TRUE (Boolean)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('❌ FALSE BRANCH - Boolean cast failed!');\nreturn $input.all();"
+      },
+      "id": "false-boolean",
+      "name": "FALSE (Boolean)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    }
+  ],
+  "connections": {
+    "Manual Start": {
+      "main": [
+        [
+          {
+            "node": "Create Test Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Test Data": {
+      "main": [
+        [
+          {
+            "node": "Inspect Before IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inspect Before IF": {
+      "main": [
+        [
+          {
+            "node": "Test IF (Loose)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test IF (Loose)": {
+      "main": [
+        [
+          {
+            "node": "TRUE (Loose)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Test IF (Boolean Cast)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FALSE (Loose)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Test IF (Boolean Cast)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test IF (Boolean Cast)": {
+      "main": [
+        [
+          {
+            "node": "TRUE (Boolean)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FALSE (Boolean)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

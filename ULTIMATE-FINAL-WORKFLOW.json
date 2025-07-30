@@ -1,0 +1,209 @@
+{
+  "name": "✅ ULTIMATE: Shopware → Qdrant Working",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "1. Get OAuth Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\n\nreturn [{ json: { \n  token: response.access_token, \n  page: 1, \n  limit: 50,\n  allProducts: [],\n  continueLoop: true\n} }];"
+      },
+      "id": "init-node",
+      "name": "2. Initialize State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "3. Fetch Products Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process pagination\nconst response = $json;\nconst state = $node[\"2. Initialize State\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error:', response.error);\n  return [{ json: {\n    products: state.allProducts,\n    totalProducts: state.allProducts.length,\n    finished: true\n  } }];\n}\n\nconst pageProducts = response.data || [];\nconst apiTotal = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\nconst allProducts = [...state.allProducts, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}: +${pageProducts.length} products`);\nconsole.log(`📊 Total collected: ${allProducts.length}`);\n\n// Check if should continue\nlet shouldContinue = false;\nif (currentPage === 1 && apiTotal === limit) {\n  // API bug detected\n  shouldContinue = pageProducts.length === limit;\n  console.log('⚠️  Using count-based pagination');\n} else {\n  const totalPages = Math.ceil(apiTotal / limit);\n  shouldContinue = currentPage < totalPages && pageProducts.length > 0;\n}\n\nif (shouldContinue) {\n  console.log('✅ Fetching next page...');\n  return [{ json: { \n    token: state.token, \n    page: currentPage + 1, \n    limit: limit, \n    allProducts: allProducts,\n    continueLoop: true,\n    finished: false\n  } }];\n} else {\n  console.log('🏁 All products fetched!');\n  return [{ json: {\n    products: allProducts,\n    totalProducts: allProducts.length,\n    finished: true\n  } }];\n}"
+      },
+      "id": "process-node",
+      "name": "4. Process & Paginate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Route based on pagination status\nconst data = $json;\n\nif (data.finished) {\n  console.log('🎯 All products fetched, proceeding to Qdrant...');\n  return [{ json: data }];\n} else {\n  console.log('🔄 More pages to fetch...');\n  return [{ json: data }];\n}"
+      },
+      "id": "router-node",
+      "name": "5. Route Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait 1s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final summary without Qdrant upload\nconst data = $json;\nconst products = data.products;\n\nif (!products || products.length === 0) {\n  console.log('❌ No products found');\n  return [{ json: { error: 'No products' } }];\n}\n\nconsole.log('\\n🎉 SHOPWARE PRODUCTS FETCHED SUCCESSFULLY!');\nconsole.log('==========================================');\nconsole.log(`📊 Total products: ${products.length}`);\nconsole.log('\\n📦 Sample products:');\n\nproducts.slice(0, 3).forEach((p, i) => {\n  console.log(`${i + 1}. ${p.name || p.productNumber} - €${p.price?.gross || 'N/A'}`);\n});\n\nconsole.log('\\n📤 TO UPLOAD TO QDRANT:');\nconsole.log('\\nOption 1: Manual Upload via curl');\nconsole.log('=========================================');\nconsole.log('# Create collection:');\nconsole.log('curl -X PUT http://localhost:6333/collections/shopware_products \\\\');\nconsole.log('  -H \"Content-Type: application/json\" \\\\');\nconsole.log('  -d \\'{\"vectors\": {\"size\": 384, \"distance\": \"Cosine\"}}\\'');\n\nconsole.log('\\n# Upload products (with real vectors):');\nconsole.log('# You need to generate real embeddings using OpenAI/Cohere/etc');\n\nconsole.log('\\nOption 2: Use Qdrant Dashboard');\nconsole.log('=========================================');\nconsole.log('1. Open http://localhost:6333/dashboard');\nconsole.log('2. Create collection \"shopware_products\" (384 dims)');\nconsole.log('3. Use the upload interface');\n\nconsole.log('\\nOption 3: Use External Script');\nconsole.log('=========================================');\nconsole.log('Export this data and use a Python/Node.js script');\nconsole.log('to generate embeddings and upload to Qdrant');\n\n// Export data structure\nconst exportData = products.map((p, idx) => ({\n  id: idx + 1,\n  product_id: p.id,\n  name: p.name || p.productNumber,\n  sku: p.productNumber,\n  price: p.price?.gross || 0,\n  description: p.description || '',\n  search_text: [p.name, p.productNumber, p.description].filter(Boolean).join(' ')\n}));\n\nreturn [{ json: { \n  success: true,\n  totalProducts: products.length,\n  products: exportData,\n  message: 'Products ready for Qdrant upload - see console for instructions'\n} }];"
+      },
+      "id": "final-node",
+      "name": "6. Export for Qdrant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "1. Get OAuth Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Get OAuth Token": {
+      "main": [
+        [
+          {
+            "node": "2. Initialize State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Initialize State": {
+      "main": [
+        [
+          {
+            "node": "3. Fetch Products Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Fetch Products Page": {
+      "main": [
+        [
+          {
+            "node": "4. Process & Paginate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Process & Paginate": {
+      "main": [
+        [
+          {
+            "node": "5. Route Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Route Logic": {
+      "main": [
+        [
+          {
+            "node": "Wait 1s",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "6. Export for Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1s": {
+      "main": [
+        [
+          {
+            "node": "3. Fetch Products Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

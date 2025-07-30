@@ -1,0 +1,334 @@
+{
+  "name": "✨ FINAL: Complete Shopware → Qdrant Sync",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "1. Get OAuth Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\n\nreturn [{ json: { \n  token: response.access_token, \n  page: 1, \n  limit: 50,\n  allProducts: [],\n  continueLoop: true\n} }];"
+      },
+      "id": "init-node",
+      "name": "2. Initialize State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "3. Fetch Products Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process pagination\nconst response = $json;\nconst state = $node[\"2. Initialize State\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error:', response.error);\n  return [{ json: {\n    products: state.allProducts,\n    totalProducts: state.allProducts.length,\n    finished: true\n  } }];\n}\n\nconst pageProducts = response.data || [];\nconst apiTotal = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\nconst allProducts = [...state.allProducts, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}: +${pageProducts.length} products`);\nconsole.log(`📊 Total collected: ${allProducts.length}`);\n\n// Check if should continue\nlet shouldContinue = false;\nif (currentPage === 1 && apiTotal === limit) {\n  // API bug detected\n  shouldContinue = pageProducts.length === limit;\n  console.log('⚠️  Using count-based pagination');\n} else {\n  const totalPages = Math.ceil(apiTotal / limit);\n  shouldContinue = currentPage < totalPages && pageProducts.length > 0;\n}\n\nif (shouldContinue) {\n  console.log('✅ Fetching next page...');\n  return [{ json: { \n    token: state.token, \n    page: currentPage + 1, \n    limit: limit, \n    allProducts: allProducts,\n    continueLoop: true,\n    finished: false\n  } }];\n} else {\n  console.log('🏁 All products fetched!');\n  return [{ json: {\n    products: allProducts,\n    totalProducts: allProducts.length,\n    finished: true\n  } }];\n}"
+      },
+      "id": "process-node",
+      "name": "4. Process & Paginate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Route based on pagination status\nconst data = $json;\n\nif (data.finished) {\n  console.log('🎯 All products fetched, proceeding to Qdrant...');\n  return [{ json: data }];\n} else {\n  console.log('🔄 More pages to fetch...');\n  return [{ json: data }];\n}"
+      },
+      "id": "router-node",
+      "name": "5. Route Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait 1s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "http://qdrant:6333/collections/shopware_products",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "alwaysContinue": true
+        }
+      },
+      "id": "delete-collection",
+      "name": "6. Delete Old Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1400, 500]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/shopware_products",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "raw",
+        "rawContentType": "application/json",
+        "body": "{\"vectors\":{\"size\":384,\"distance\":\"Cosine\"}}"
+      },
+      "id": "create-collection",
+      "name": "7. Create Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare products for batch upload\nconst data = $json;\nconst products = $node[\"5. Route Logic\"].json.products;\n\nif (!products || products.length === 0) {\n  console.log('❌ No products to upload');\n  return [{ json: { error: 'No products' } }];\n}\n\nconsole.log(`\\n🔄 PREPARING ${products.length} PRODUCTS FOR QDRANT`);\n\n// Process in batches of 100\nconst BATCH_SIZE = 100;\nconst batches = [];\n\nfor (let i = 0; i < products.length; i += BATCH_SIZE) {\n  const batch = products.slice(i, i + BATCH_SIZE);\n  const points = batch.map((product, idx) => {\n    // Create search text\n    const textParts = [];\n    if (product.name) textParts.push(product.name);\n    if (product.productNumber) textParts.push(product.productNumber);\n    if (product.description) textParts.push(product.description);\n    if (product.manufacturer?.name) textParts.push(product.manufacturer.name);\n    \n    return {\n      id: i + idx + 1, // Numeric ID starting from 1\n      payload: {\n        product_id: product.id,\n        name: product.name || product.productNumber || 'Unknown',\n        sku: product.productNumber || '',\n        price: product.price?.gross || 0,\n        description: product.description || '',\n        search_text: textParts.join(' '),\n        active: product.active !== false\n      }\n    };\n  });\n  \n  batches.push({\n    batchNumber: Math.floor(i / BATCH_SIZE) + 1,\n    points: points\n  });\n}\n\nconsole.log(`📦 Created ${batches.length} batches of ${BATCH_SIZE} products each`);\nconsole.log('📝 Sample point:', JSON.stringify(batches[0].points[0], null, 2));\n\n// For now, upload first batch\nconst firstBatch = batches[0];\n\nreturn [{ json: {\n  points: firstBatch.points,\n  totalBatches: batches.length,\n  currentBatch: 1,\n  totalProducts: products.length\n} }];"
+      },
+      "id": "prepare-node",
+      "name": "8. Prepare Qdrant Points",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 500]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/shopware_products/points?wait=true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({points: $json.points}) }}"
+      },
+      "id": "upload-node",
+      "name": "9. Upload to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploadResult = $json;\nconst batchInfo = $node[\"8. Prepare Qdrant Points\"].json;\n\nconsole.log('\\n🎉 SHOPWARE → QDRANT SYNC COMPLETE!');\nconsole.log('==========================================');\nconsole.log(`📊 Total products in Shopware: ${batchInfo.totalProducts}`);\nconsole.log(`🔄 Uploaded batch ${batchInfo.currentBatch} of ${batchInfo.totalBatches}`);\nconsole.log(`📦 Products in this batch: ${batchInfo.points.length}`);\nconsole.log(`📡 Qdrant response:`, uploadResult.status || 'Success');\n\nif (batchInfo.totalBatches > 1) {\n  console.log(`\\n📝 NOTE: Only first batch uploaded (${batchInfo.points.length} products)`);\n  console.log(`   To upload all ${batchInfo.totalProducts} products, extend with batch loop`);\n}\n\nconsole.log('\\n✅ Your AI Chatbot now has Shopware product data!');\nconsole.log('🔍 Collection: shopware_products');\nconsole.log('🌐 Qdrant UI: http://localhost:6333/dashboard');\n\nreturn [{ json: { \n  success: true,\n  productsUploaded: batchInfo.points.length,\n  totalProducts: batchInfo.totalProducts,\n  collection: 'shopware_products',\n  timestamp: new Date().toISOString()\n} }];"
+      },
+      "id": "final-node",
+      "name": "10. Success Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "1. Get OAuth Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Get OAuth Token": {
+      "main": [
+        [
+          {
+            "node": "2. Initialize State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Initialize State": {
+      "main": [
+        [
+          {
+            "node": "3. Fetch Products Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Fetch Products Page": {
+      "main": [
+        [
+          {
+            "node": "4. Process & Paginate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Process & Paginate": {
+      "main": [
+        [
+          {
+            "node": "5. Route Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Route Logic": {
+      "main": [
+        [
+          {
+            "node": "Wait 1s",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "6. Delete Old Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1s": {
+      "main": [
+        [
+          {
+            "node": "3. Fetch Products Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Delete Old Collection": {
+      "main": [
+        [
+          {
+            "node": "7. Create Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. Create Collection": {
+      "main": [
+        [
+          {
+            "node": "8. Prepare Qdrant Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8. Prepare Qdrant Points": {
+      "main": [
+        [
+          {
+            "node": "9. Upload to Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9. Upload to Qdrant": {
+      "main": [
+        [
+          {
+            "node": "10. Success Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

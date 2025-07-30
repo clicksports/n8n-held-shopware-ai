@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+
+// Script to create a properly connected workflow via n8n CLI
+const workflow = {
+  "name": "Connected Shopware Test",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f8b9c1d2-e3f4-5678-9abc-def012345678",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create test data\nconst data = {\n  page: 1,\n  limit: 10,\n  hasMore: true,\n  products: []\n};\n\nconsole.log('📊 Created data:', JSON.stringify(data, null, 2));\nconsole.log('🔍 hasMore value:', data.hasMore, 'type:', typeof data.hasMore);\n\nreturn [{ json: data }];"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+      "name": "Create Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-more-condition",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2c3d4e5-f6g7-8901-bcde-f01234567890",
+      "name": "Check More",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ TRUE: hasMore condition passed!');\nconsole.log('📋 Data received:', JSON.stringify($json, null, 2));\nreturn [{ json: { status: 'TRUE_BRANCH', data: $json } }];"
+      },
+      "id": "c3d4e5f6-g7h8-9012-cdef-012345678901",
+      "name": "True Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('❌ FALSE: hasMore condition failed!');\nconsole.log('📋 Data received:', JSON.stringify($json, null, 2));\nreturn [{ json: { status: 'FALSE_BRANCH', data: $json } }];"
+      },
+      "id": "d4e5f6g7-h8i9-0123-def0-123456789012",
+      "name": "False Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Create Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Data": {
+      "main": [
+        [
+          {
+            "node": "Check More",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check More": {
+      "main": [
+        [
+          {
+            "node": "True Path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "False Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+};
+
+console.log(JSON.stringify(workflow, null, 2));

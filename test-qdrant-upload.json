@@ -1,0 +1,148 @@
+{
+  "name": "Test Qdrant Upload Format",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Test with minimal valid point\nconst testPoint = {\n  id: 1,\n  payload: {\n    name: \"Test Product\",\n    productId: \"test-123\"\n  }\n};\n\nconsole.log('Testing with point:', JSON.stringify(testPoint, null, 2));\n\nreturn [{ json: { \n  points: [testPoint]\n} }];"
+      },
+      "id": "prepare",
+      "name": "Prepare Test Point",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/test_collection",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"vectors\": {\n    \"size\": 384,\n    \"distance\": \"Cosine\"\n  }\n}"
+      },
+      "id": "create",
+      "name": "Create Test Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Try different upload formats\nconst points = $node[\"Prepare Test Point\"].json.points;\n\n// Format 1: Direct points array\nconsole.log('\\nTrying Format 1: Direct array');\nconst format1 = points;\n\n// Format 2: Points in object\nconsole.log('\\nTrying Format 2: Points object');\nconst format2 = { points: points };\n\n// Format 3: Batch format\nconsole.log('\\nTrying Format 3: Batch format');\nconst format3 = { \n  batch: {\n    ids: [1],\n    payloads: [{ name: \"Test Product\", productId: \"test-123\" }],\n    vectors: null\n  }\n};\n\n// Let's try format 2 first (most common)\nconsole.log('\\nUsing format:', JSON.stringify(format2, null, 2));\n\nreturn [{ json: format2 }];"
+      },
+      "id": "formats",
+      "name": "Test Formats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/test_collection/points",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}"
+      },
+      "id": "upload",
+      "name": "Upload Test",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json;\nconsole.log('\\n✅ UPLOAD RESULT:');\nconsole.log(JSON.stringify(result, null, 2));\nreturn [{ json: result }];"
+      },
+      "id": "result",
+      "name": "Show Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Prepare Test Point",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Test Point": {
+      "main": [
+        [
+          {
+            "node": "Create Test Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Test Collection": {
+      "main": [
+        [
+          {
+            "node": "Test Formats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Formats": {
+      "main": [
+        [
+          {
+            "node": "Upload Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Test": {
+      "main": [
+        [
+          {
+            "node": "Show Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

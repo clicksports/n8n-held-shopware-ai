@@ -1,0 +1,242 @@
+{
+  "name": "Simple Batch Sync",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"page\": 1,\n  \"limit\": 50,\n  \"filter\": [{\n    \"type\": \"equals\",\n    \"field\": \"active\",\n    \"value\": true\n  }],\n  \"includes\": {\n    \"product\": [\"id\", \"name\", \"productNumber\", \"description\", \"price\", \"availableStock\"]\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "get-first-page",
+      "name": "Get First Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get total count and calculate pages needed\nconst response = $json;\n\nconsole.log('📥 First page response:');\nconsole.log('Has data:', !!response.data);\nconsole.log('Total:', response.total);\n\nif (response.error || !response.data) {\n  console.log('❌ API Error:', response.error);\n  return [{\n    json: {\n      error: true,\n      message: response.error || 'No data received'\n    }\n  }];\n}\n\nconst limit = 50;\nconst total = response.total || 0;\nconst totalPages = Math.ceil(total / limit);\nconst firstPageProducts = response.data || [];\n\nconsole.log(`📊 Found ${total} total products across ${totalPages} pages`);\nconsole.log(`📦 First page has ${firstPageProducts.length} products`);\n\n// Store first page data and page info\nreturn [{\n  json: {\n    firstPageProducts: firstPageProducts,\n    totalProducts: total,\n    totalPages: totalPages,\n    limit: limit,\n    remainingPages: Math.max(0, totalPages - 1)\n  }\n}];"
+      },
+      "id": "analyze-total",
+      "name": "Analyze Total",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-more-pages",
+              "leftValue": "={{ $json.remainingPages }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-more-pages",
+      "name": "Has More Pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate page numbers for remaining pages\nconst data = $json;\nconst totalPages = data.totalPages;\nconst limit = data.limit;\n\nconsole.log(`🔄 Generating requests for pages 2-${totalPages}`);\n\n// Create array of page numbers (2, 3, 4, etc.)\nconst pageNumbers = [];\nfor (let page = 2; page <= totalPages; page++) {\n  pageNumbers.push(page);\n}\n\nconsole.log(`📤 Will fetch ${pageNumbers.length} additional pages:`, pageNumbers);\n\n// Return each page number as a separate item\nconst items = pageNumbers.map(pageNumber => ({\n  json: {\n    page: pageNumber,\n    limit: limit,\n    totalPages: totalPages\n  }\n}));\n\nreturn items;"
+      },
+      "id": "create-page-requests",
+      "name": "Create Page Requests", 
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  page: $json.page,\n  limit: $json.limit,\n  filter: [{\n    type: \"equals\",\n    field: \"active\",\n    value: true\n  }],\n  includes: {\n    product: [\"id\", \"name\", \"productNumber\", \"description\", \"price\", \"availableStock\"]\n  }\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-additional-pages",
+      "name": "Fetch Additional Pages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1200, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log each page as it's fetched\nconst response = $json;\nconst requestData = $node[\"Create Page Requests\"].json;\n\nif (response.data && response.data.length > 0) {\n  console.log(`📄 Page ${requestData.page}/${requestData.totalPages}: ${response.data.length} products`);\n} else {\n  console.log(`❌ Page ${requestData.page} failed:`, response.error || 'No data');\n}\n\nreturn $input.all();"
+      },
+      "id": "log-page-progress",
+      "name": "Log Page Progress",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "collect-additional-pages",
+      "name": "Collect Additional Pages",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final combination - merge first page with additional pages\nconst additionalPagesData = $input.all();\nconst firstPageData = $node[\"Check More Pages?\"].json;\n\nconsole.log('\\n🔄 Combining all pages...');\n\n// Start with first page products\nlet allProducts = [...(firstPageData.firstPageProducts || [])];\nconsole.log(`📦 First page: ${firstPageData.firstPageProducts?.length || 0} products`);\n\n// Add products from additional pages\nlet successfulPages = 1;\nlet errors = [];\n\nadditionalPagesData.forEach((pageResponse, index) => {\n  const response = pageResponse.json;\n  if (response && response.data && Array.isArray(response.data)) {\n    allProducts = [...allProducts, ...response.data];\n    successfulPages++;\n    console.log(`📦 Page ${index + 2}: ${response.data.length} products`);\n  } else {\n    errors.push(`Page ${index + 2}: ${response.error || 'No data'}`);\n  }\n});\n\nconst summary = {\n  success: true,\n  totalProductsCollected: allProducts.length,\n  totalProductsAvailable: firstPageData.totalProducts || 0,\n  pagesFetched: successfulPages,\n  totalPages: firstPageData.totalPages || 1,\n  errors: errors,\n  products: allProducts\n};\n\nconsole.log('\\n🎉 SYNC COMPLETE!');\nconsole.log(`📊 Final Results:`);\nconsole.log(`   Products collected: ${summary.totalProductsCollected}`);\nconsole.log(`   Products available: ${summary.totalProductsAvailable}`);\nconsole.log(`   Pages fetched: ${summary.pagesFetched}/${summary.totalPages}`);\nconsole.log(`   Success rate: ${Math.round(summary.totalProductsCollected/summary.totalProductsAvailable*100)}%`);\n\nif (errors.length > 0) {\n  console.log(`❌ Errors: ${errors.length}`);\n  errors.forEach(error => console.log(`   - ${error}`));\n}\n\nreturn [{ json: summary }];"
+      },
+      "id": "final-combination",
+      "name": "Final Combination",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle single page case\nconst data = $json;\n\nconsole.log('✅ Single page sync complete!');\nconsole.log(`📊 Total products: ${data.firstPageProducts?.length || 0}`);\n\nconst summary = {\n  success: true,\n  totalProductsCollected: data.firstPageProducts?.length || 0,\n  totalProductsAvailable: data.totalProducts || 0,\n  pagesFetched: 1,\n  totalPages: 1,\n  errors: [],\n  products: data.firstPageProducts || []\n};\n\nreturn [{ json: summary }];"
+      },
+      "id": "single-page-result",
+      "name": "Single Page Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get First Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get First Page": {
+      "main": [
+        [
+          {
+            "node": "Analyze Total",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Total": {
+      "main": [
+        [
+          {
+            "node": "Has More Pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has More Pages?": {
+      "main": [
+        [
+          {
+            "node": "Create Page Requests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Single Page Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Page Requests": {
+      "main": [
+        [
+          {
+            "node": "Fetch Additional Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Additional Pages": {
+      "main": [
+        [
+          {
+            "node": "Log Page Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Page Progress": {
+      "main": [
+        [
+          {
+            "node": "Collect Additional Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Additional Pages": {
+      "main": [
+        [
+          {
+            "node": "Final Combination",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

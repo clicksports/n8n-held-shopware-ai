@@ -1,0 +1,144 @@
+{
+  "name": "Minimal IF Test",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "boolean": [
+            {
+              "name": "testValue",
+              "value": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-node",
+      "name": "Set Boolean",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('📊 Data from Set node:', JSON.stringify($json, null, 2));\nconsole.log('testValue:', $json.testValue, 'type:', typeof $json.testValue);\nreturn $input.all();"
+      },
+      "id": "inspect",
+      "name": "Inspect",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "test-true",
+              "leftValue": "={{ $json.testValue }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-test",
+      "name": "IF Test",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ SUCCESS: IF node TRUE branch worked!');\nreturn [{ json: { result: 'TRUE_BRANCH_SUCCESS' } }];"
+      },
+      "id": "success",
+      "name": "SUCCESS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('❌ FAILURE: IF node went to FALSE branch');\nconsole.log('This means there is a fundamental issue with the IF node');\nreturn [{ json: { result: 'FALSE_BRANCH_FAILURE' } }];"
+      },
+      "id": "failure",
+      "name": "FAILURE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Set Boolean",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Boolean": {
+      "main": [
+        [
+          {
+            "node": "Inspect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inspect": {
+      "main": [
+        [
+          {
+            "node": "IF Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Test": {
+      "main": [
+        [
+          {
+            "node": "SUCCESS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FAILURE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "name": "JavaScript Only - No IF Nodes",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\nreturn [{ json: { token: response.access_token, page: 1, limit: 20, allProducts: [] } }];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Main pagination loop - JavaScript only\nconst { token, page, limit, allProducts } = $json;\nlet currentPage = page;\nlet products = [...allProducts];\nlet hasMore = true;\n\nconsole.log(`🚀 Starting pagination from page ${currentPage}`);\n\nwhile (hasMore && currentPage <= 50) { // Safety limit\n  console.log(`📄 Fetching page ${currentPage}...`);\n  \n  // Fetch current page\n  const response = await fetch(`https://shop.held.de/api/product?page=${currentPage}&limit=${limit}`, {\n    headers: {\n      'Authorization': `Bearer ${token}`,\n      'Accept': 'application/json'\n    }\n  });\n  \n  if (!response.ok) {\n    console.log(`❌ HTTP Error: ${response.status}`);\n    break;\n  }\n  \n  const data = await response.json();\n  \n  if (data.error || !data.data) {\n    console.log(`❌ API Error:`, data.error);\n    break;\n  }\n  \n  const pageProducts = data.data || [];\n  const total = data.total || 0;\n  const totalPages = Math.ceil(total / limit);\n  \n  products = [...products, ...pageProducts];\n  \n  console.log(`📊 Page ${currentPage}/${totalPages}: +${pageProducts.length} products (${products.length}/${total} total)`);\n  \n  // Check if we have more pages\n  hasMore = currentPage < totalPages && pageProducts.length > 0;\n  currentPage++;\n  \n  // Rate limiting\n  if (hasMore) {\n    console.log('⏳ Rate limiting...');\n    await new Promise(resolve => setTimeout(resolve, 1000));\n  }\n}\n\nconsole.log(`🎉 Pagination complete! Total products: ${products.length}`);\n\nreturn [{ \n  json: { \n    success: true,\n    totalProducts: products.length,\n    products: products.slice(0, 10), // First 10 for display\n    allProducts: products\n  } \n}];"
+      },
+      "id": "paginate-node",
+      "name": "Paginate All",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconsole.log('\\n🎉 SYNC COMPLETE!');\nconsole.log(`📊 Total products: ${data.totalProducts}`);\nconsole.log(`✅ Success: ${data.success}`);\n\nreturn [{ json: data }];"
+      },
+      "id": "done-node",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Paginate All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Paginate All": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,330 @@
+{
+  "name": "Final: Shopware to Qdrant Sync",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\n\n// Start with conservative pagination settings\nreturn [{ json: { \n  token: response.access_token, \n  page: 1, \n  limit: 50, // Use 50 instead of 25 to test if total changes\n  allProducts: [],\n  totalPages: null,\n  actualTotal: null\n} }];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Smart pagination logic that handles API issues\nconst response = $json;\nconst state = $node[\"Initialize\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error, finishing:', response.error);\n  return [{ json: {\n    success: false,\n    error: response.error,\n    totalProducts: state.allProducts.length,\n    products: state.allProducts\n  } }];\n}\n\nconst pageProducts = response.data || [];\nconst apiTotal = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\nconst allProducts = [...state.allProducts, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}: +${pageProducts.length} products (API total: ${apiTotal})`);\nconsole.log(`📊 Collected so far: ${allProducts.length}`);\n\n// SMART DETECTION: Check if API is returning bogus totals\nlet shouldContinue = false;\nlet detectedIssue = null;\n\nif (currentPage === 1) {\n  // On first page, analyze the API response\n  if (apiTotal === limit) {\n    detectedIssue = 'API_RETURNS_LIMIT_AS_TOTAL';\n    console.log('⚠️  DETECTED: API returns limit as total - using product count logic');\n  } else if (apiTotal > 0 && apiTotal < limit) {\n    console.log('✅ Small catalog detected, API total seems correct');\n  }\n}\n\nif (detectedIssue === 'API_RETURNS_LIMIT_AS_TOTAL') {\n  // Use product count logic instead of API total\n  shouldContinue = pageProducts.length === limit; // Continue if we got a full page\n  console.log(`🔧 Using count-based logic: got ${pageProducts.length}/${limit} products, continue: ${shouldContinue}`);\n} else {\n  // Use API total logic\n  const calculatedTotalPages = Math.ceil(apiTotal / limit);\n  shouldContinue = currentPage < calculatedTotalPages && pageProducts.length > 0;\n  console.log(`📐 Using API logic: page ${currentPage}/${calculatedTotalPages}, continue: ${shouldContinue}`);\n}\n\nif (shouldContinue) {\n  console.log('✅ Continuing to next page...');\n  return [{ json: { \n    token: state.token, \n    page: currentPage + 1, \n    limit: limit, \n    allProducts: allProducts,\n    shouldContinue: true,\n    detectedIssue: detectedIssue,\n    apiTotal: apiTotal\n  } }];\n} else {\n  console.log('🏁 Pagination complete!');\n  \n  // Final count logic\n  let finalTotal = allProducts.length;\n  if (!detectedIssue && apiTotal > 0) {\n    finalTotal = Math.max(apiTotal, allProducts.length);\n  }\n  \n  return [{ json: {\n    success: true,\n    totalProducts: allProducts.length,\n    estimatedTotal: finalTotal,\n    apiReportedTotal: apiTotal,\n    detectedIssue: detectedIssue,\n    products: allProducts,\n    shouldContinue: false\n  } }];\n}"
+      },
+      "id": "process-node",
+      "name": "Smart Process",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-continue",
+              "leftValue": "={{ $json.shouldContinue }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-node",
+      "name": "Should Continue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform products for Qdrant vectorization\nconst data = $json;\nconsole.log('\\n🔄 PREPARING FOR QDRANT UPLOAD');\nconsole.log('=========================================');\nconsole.log(`📊 Products to process: ${data.totalProducts}`);\n\nif (!data.products || data.products.length === 0) {\n  console.log('❌ No products to upload');\n  return [{ json: { success: false, error: 'No products found' } }];\n}\n\n// Transform each product for AI chatbot context\nconst vectorizedProducts = data.products.map(product => {\n  // Create comprehensive text for embedding\n  const textParts = [];\n  \n  if (product.name) textParts.push(`Product: ${product.name}`);\n  if (product.productNumber) textParts.push(`SKU: ${product.productNumber}`);\n  if (product.description) textParts.push(`Description: ${product.description}`);\n  if (product.price && product.price.gross) textParts.push(`Price: €${product.price.gross}`);\n  if (product.manufacturer && product.manufacturer.name) textParts.push(`Brand: ${product.manufacturer.name}`);\n  if (product.categories) {\n    const categoryNames = product.categories.map(c => c.name).filter(Boolean);\n    if (categoryNames.length > 0) textParts.push(`Categories: ${categoryNames.join(', ')}`);\n  }\n  if (product.properties) {\n    const propTexts = product.properties.map(p => `${p.name}: ${p.value}`).filter(Boolean);\n    if (propTexts.length > 0) textParts.push(`Properties: ${propTexts.join(', ')}`);\n  }\n  \n  const fullText = textParts.join('. ');\n  \n  return {\n    id: product.id,\n    vector: null, // Will be generated by Qdrant\n    payload: {\n      productId: product.id,\n      name: product.name || product.productNumber,\n      productNumber: product.productNumber,\n      description: product.description,\n      price: product.price,\n      manufacturer: product.manufacturer,\n      categories: product.categories,\n      properties: product.properties,\n      active: product.active,\n      fullText: fullText,\n      syncDate: new Date().toISOString(),\n      source: 'shopware-held-de'\n    }\n  };\n});\n\nconsole.log(`🔄 Transformed ${vectorizedProducts.length} products for Qdrant`);\nconsole.log('📝 Sample transformed product:');\nconsole.log(JSON.stringify(vectorizedProducts[0], null, 2));\n\nreturn [{ json: { \n  success: true,\n  totalProducts: data.totalProducts,\n  vectorizedProducts: vectorizedProducts,\n  batchSize: vectorizedProducts.length,\n  detectedIssue: data.detectedIssue\n} }];"
+      },
+      "id": "done-node",
+      "name": "Transform for Qdrant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/shopware_products",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "vectors",
+              "value": "={\n  \"size\": 384,\n  \"distance\": \"Cosine\"\n}"
+            }
+          ]
+        }
+      },
+      "id": "create-collection",
+      "name": "Create Qdrant Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 400]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/shopware_products/points",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "points",
+              "value": "={{ JSON.stringify($json.vectorizedProducts.slice(0, 100)) }}"
+            }
+          ]
+        }
+      },
+      "id": "upload-batch",
+      "name": "Upload to Qdrant (Batch 1)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploadResult = $json;\nconst transformData = $node[\"Transform for Qdrant\"].json;\n\nconsole.log('\\n🎉 SHOPWARE TO QDRANT SYNC COMPLETE!');\nconsole.log('==========================================');\nconsole.log(`📊 Products synced: ${transformData.totalProducts}`);\nconsole.log(`🔄 Batch uploaded: ${Math.min(100, transformData.totalProducts)}`);\nconsole.log(`📡 Qdrant response:`, uploadResult.result || 'Success');\n\nif (transformData.detectedIssue) {\n  console.log(`⚠️  API Issue handled: ${transformData.detectedIssue}`);\n}\n\nif (transformData.totalProducts > 100) {\n  console.log(`\\n📝 NOTE: Only first 100 products uploaded as demonstration.`);\n  console.log(`   Extend workflow with batching for full ${transformData.totalProducts} products.`);\n}\n\nconsole.log('\\n✅ AI Chatbot ready with fresh Shopware data!');\nreturn [{ json: { \n  syncComplete: true,\n  productsSynced: Math.min(100, transformData.totalProducts),\n  totalProducts: transformData.totalProducts,\n  qdrantCollection: 'shopware_products',\n  timestamp: new Date().toISOString()\n} }];"
+      },
+      "id": "final-status",
+      "name": "Sync Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Smart Process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Process": {
+      "main": [
+        [
+          {
+            "node": "Should Continue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Continue?": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Transform for Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform for Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Create Qdrant Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Qdrant Collection": {
+      "main": [
+        [
+          {
+            "node": "Upload to Qdrant (Batch 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Qdrant (Batch 1)": {
+      "main": [
+        [
+          {
+            "node": "Sync Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

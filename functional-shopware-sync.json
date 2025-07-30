@@ -1,0 +1,206 @@
+{
+  "name": "Functional Shopware Sync",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize with first request\nconst config = {\n  page: 1,\n  limit: 50\n};\n\nconsole.log('🚀 Starting with page 1');\nreturn [{ json: config }];"
+      },
+      "id": "init",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  page: $json.page,\n  limit: $json.limit,\n  filter: [{\n    type: \"equals\",\n    field: \"active\",\n    value: true\n  }],\n  includes: {\n    product: [\"id\", \"name\", \"productNumber\", \"description\", \"price\", \"availableStock\"]\n  }\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-page-1",
+      "name": "Fetch Page 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process first page and get total info\nconst response = $input.first().json;\nconst config = $node[\"Initialize\"].json;\n\nconsole.log('📥 First page response:');\nconsole.log('Has data:', !!response.data);\nconsole.log('Total available:', response.total);\n\nif (response.error || !response.data) {\n  console.log('❌ API Error:', response.error);\n  return [{\n    json: {\n      error: true,\n      message: response.error || 'No data received',\n      products: []\n    }\n  }];\n}\n\nconst products = response.data || [];\nconst total = response.total || 0;\nconst totalPages = Math.ceil(total / config.limit);\n\nconsole.log(`📊 Page 1/${totalPages}: ${products.length} products`);\nconsole.log(`📈 Total products available: ${total}`);\n\n// If only one page, we're done\nif (totalPages <= 1) {\n  console.log('✅ Only one page needed!');\n  return [{\n    json: {\n      allProducts: products,\n      totalFetched: products.length,\n      totalAvailable: total,\n      pagesFetched: 1,\n      complete: true\n    }\n  }];\n}\n\n// Multiple pages - return info for next steps\nreturn [{\n  json: {\n    firstPageProducts: products,\n    totalAvailable: total,\n    totalPages: totalPages,\n    limit: config.limit,\n    needsMorePages: true,\n    pagesRemaining: totalPages - 1\n  }\n}];"
+      },
+      "id": "process-first-page",
+      "name": "Process First Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate remaining page requests\nconst data = $json;\n\nif (data.complete) {\n  console.log('✅ Single page complete - no more requests needed');\n  return [data];\n}\n\nif (data.error) {\n  console.log('❌ Error in first page - stopping');\n  return [data];\n}\n\nif (!data.needsMorePages) {\n  console.log('✅ All pages processed');\n  return [data];\n}\n\nconsole.log(`🔄 Need to fetch ${data.pagesRemaining} more pages`);\n\n// Generate requests for remaining pages (pages 2, 3, 4, etc.)\nconst remainingRequests = [];\nfor (let page = 2; page <= data.totalPages; page++) {\n  remainingRequests.push({\n    json: {\n      page: page,\n      limit: data.limit,\n      pageNumber: page,\n      totalPages: data.totalPages\n    }\n  });\n}\n\nconsole.log(`📤 Generated ${remainingRequests.length} additional requests`);\nreturn remainingRequests;"
+      },
+      "id": "generate-requests",
+      "name": "Generate Remaining Requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  page: $json.page,\n  limit: $json.limit,\n  filter: [{\n    type: \"equals\",\n    field: \"active\",\n    value: true\n  }],\n  includes: {\n    product: [\"id\", \"name\", \"productNumber\", \"description\", \"price\", \"availableStock\"]\n  }\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-remaining-pages",
+      "name": "Fetch Remaining Pages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1200, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log progress for each page\nconst response = $input.first().json;\nconst config = $node[\"Generate Remaining Requests\"].json;\n\nif (response.data) {\n  console.log(`📄 Page ${config.pageNumber}/${config.totalPages}: ${response.data.length} products`);\n} else {\n  console.log(`❌ Page ${config.pageNumber} failed:`, response.error);\n}\n\nreturn $input.all();"
+      },
+      "id": "log-progress",
+      "name": "Log Progress",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "combine-all",
+      "name": "Combine All Pages",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all results\nconst allResponses = $input.all();\nconst firstPageData = $node[\"Process First Page\"].json;\n\nconsole.log('\\n🔄 Combining all pages...');\n\nlet allProducts = [];\nlet successfulPages = 0;\nlet errors = [];\n\n// Add first page products if we have them\nif (firstPageData.firstPageProducts) {\n  allProducts = [...firstPageData.firstPageProducts];\n  successfulPages = 1;\n  console.log(`📦 Added ${firstPageData.firstPageProducts.length} products from page 1`);\n}\n\n// Add remaining pages\nallResponses.forEach((response, index) => {\n  const data = response.json;\n  if (data && data.data && Array.isArray(data.data)) {\n    allProducts = [...allProducts, ...data.data];\n    successfulPages++;\n    console.log(`📦 Added ${data.data.length} products from page ${index + 2}`);\n  } else {\n    errors.push(`Page ${index + 2}: ${data.error || 'No data'}`);\n    console.log(`❌ Page ${index + 2} failed`);\n  }\n});\n\nconst summary = {\n  success: true,\n  totalProducts: allProducts.length,\n  totalAvailable: firstPageData.totalAvailable || 0,\n  pagesFetched: successfulPages,\n  totalPages: firstPageData.totalPages || 1,\n  errors: errors,\n  products: allProducts\n};\n\nconsole.log('\\n🎉 SYNC COMPLETE!');\nconsole.log(`📊 Results:`);\nconsole.log(`   Products collected: ${summary.totalProducts}`);\nconsole.log(`   Pages fetched: ${summary.pagesFetched}/${summary.totalPages}`);\nconsole.log(`   Errors: ${summary.errors.length}`);\n\nif (summary.errors.length > 0) {\n  console.log('❌ Errors encountered:', summary.errors);\n}\n\nreturn [{ json: summary }];"
+      },
+      "id": "final-summary",
+      "name": "Final Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page 1": {
+      "main": [
+        [
+          {
+            "node": "Process First Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process First Page": {
+      "main": [
+        [
+          {
+            "node": "Generate Remaining Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Remaining Requests": {
+      "main": [
+        [
+          {
+            "node": "Fetch Remaining Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Remaining Pages": {
+      "main": [
+        [
+          {
+            "node": "Log Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Progress": {
+      "main": [
+        [
+          {
+            "node": "Combine All Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine All Pages": {
+      "main": [
+        [
+          {
+            "node": "Final Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

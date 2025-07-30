@@ -1,0 +1,112 @@
+{
+  "name": "TEST: Routing Logic",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simulate pagination states\nconst states = [\n  { page: 1, finished: false, products: [] },\n  { page: 2, finished: true, products: ['p1', 'p2', 'p3'] }\n];\n\nreturn states.map(s => ({ json: s }));"
+      },
+      "id": "simulate",
+      "name": "Simulate States",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "value": "={{ $json.finished }}",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value": "true",
+              "output": 0
+            },
+            {
+              "operation": "equals", 
+              "value": "false",
+              "output": 1
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "switch",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ FINISHED - Transform path');\nconsole.log('Products:', $json.products);\nreturn [{ json: $json }];"
+      },
+      "id": "transform",
+      "name": "Transform Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('🔄 NOT FINISHED - Continue path');\nconsole.log('Page:', $json.page);\nreturn [{ json: $json }];"
+      },
+      "id": "continue",
+      "name": "Continue Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Simulate States",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate States": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Transform Path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Continue Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

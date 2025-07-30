@@ -1,0 +1,41 @@
+{
+  "name": "WEBHOOK: Test Execution",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "test-execution"
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 400],
+      "webhookId": "test-execution"
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ Webhook received!');\nconst timestamp = new Date().toISOString();\nconsole.log('Timestamp:', timestamp);\nreturn [{ json: { success: true, timestamp } }];"
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

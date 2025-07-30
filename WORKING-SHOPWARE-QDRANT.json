@@ -1,0 +1,230 @@
+{
+  "name": "🚀 WORKING: Shopware → Qdrant (No Upload)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\n\n// Initialize pagination state\nreturn [{ json: { \n  token: response.access_token, \n  page: 1, \n  limit: 50,\n  allProducts: [],\n  continueLoop: true\n} }];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass through state for fetching\nconst state = $json;\nconsole.log(`🚀 Ready to fetch page ${state.page}...`);\nreturn [{ json: state }];"
+      },
+      "id": "loop-controller",
+      "name": "Loop Controller",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Smart pagination with single-output routing\nconst response = $json;\nconst state = $node[\"Loop Controller\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error, finishing:', response.error);\n  return [{ json: {\n    success: false,\n    error: response.error,\n    totalProducts: state.allProducts.length,\n    products: state.allProducts,\n    continueLoop: false,\n    finished: true\n  } }];\n}\n\nconst pageProducts = response.data || [];\nconst apiTotal = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\nconst allProducts = [...state.allProducts, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}: +${pageProducts.length} products (API total: ${apiTotal})`);\nconsole.log(`📊 Collected so far: ${allProducts.length}`);\n\n// SMART DETECTION: Check if API is returning bogus totals\nlet shouldContinue = false;\nlet detectedIssue = state.detectedIssue;\n\nif (currentPage === 1) {\n  if (apiTotal === limit) {\n    detectedIssue = 'API_RETURNS_LIMIT_AS_TOTAL';\n    console.log('⚠️  DETECTED: API returns limit as total - using product count logic');\n  }\n}\n\nif (detectedIssue === 'API_RETURNS_LIMIT_AS_TOTAL') {\n  shouldContinue = pageProducts.length === limit;\n  console.log(`🔧 Count-based logic: got ${pageProducts.length}/${limit}, continue: ${shouldContinue}`);\n} else {\n  const calculatedTotalPages = Math.ceil(apiTotal / limit);\n  shouldContinue = currentPage < calculatedTotalPages && pageProducts.length > 0;\n  console.log(`📐 API logic: page ${currentPage}/${calculatedTotalPages}, continue: ${shouldContinue}`);\n}\n\nif (shouldContinue) {\n  console.log('✅ Continuing to next page...');\n  return [{ json: { \n    token: state.token, \n    page: currentPage + 1, \n    limit: limit, \n    allProducts: allProducts,\n    detectedIssue: detectedIssue,\n    continueLoop: true,\n    finished: false\n  } }];\n} else {\n  console.log('🏁 Pagination complete!');\n  return [{ json: {\n    success: true,\n    totalProducts: allProducts.length,\n    estimatedTotal: Math.max(apiTotal, allProducts.length),\n    apiReportedTotal: apiTotal,\n    detectedIssue: detectedIssue,\n    products: allProducts,\n    continueLoop: false,\n    finished: true\n  } }];\n}"
+      },
+      "id": "process-node",
+      "name": "Smart Process",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Route based on whether we should continue\nconst data = $json;\n\nif (data.finished) {\n  console.log('🎯 Routing to completion...');\n  return [{ json: data }]; // Route to transform\n} else if (data.continueLoop) {\n  console.log('🔄 Routing to next page...');\n  // We need to go back to fetch more - this creates the loop\n  return [{ json: data }]; // This will route back to fetch\n} else {\n  console.log('❓ Unexpected state');\n  return [{ json: { ...data, finished: true } }];\n}"
+      },
+      "id": "router-node",
+      "name": "Route Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform products and show Qdrant-ready format\nconst data = $json;\nconsole.log('\\n🔄 PRODUCTS FETCHED SUCCESSFULLY!');\nconsole.log('=========================================');\nconsole.log(`📊 Total products: ${data.totalProducts}`);\n\nif (!data.products || data.products.length === 0) {\n  console.log('❌ No products found');\n  return [{ json: { success: false, error: 'No products found' } }];\n}\n\n// Transform first 5 products as example\nconst qdrantPoints = data.products.slice(0, 5).map((product, index) => {\n  const textParts = [];\n  \n  if (product.name) textParts.push(`Product: ${product.name}`);\n  if (product.productNumber) textParts.push(`SKU: ${product.productNumber}`);\n  if (product.description) textParts.push(`Description: ${product.description}`);\n  if (product.price && product.price.gross) textParts.push(`Price: €${product.price.gross}`);\n  \n  return {\n    id: index + 1,\n    payload: {\n      productId: product.id,\n      name: product.name || product.productNumber || 'Unknown',\n      productNumber: product.productNumber || '',\n      price: product.price ? product.price.gross : 0,\n      fullText: textParts.join('. ')\n    }\n  };\n});\n\nconsole.log('\\n📦 QDRANT-READY FORMAT (first 5 products):');\nconsole.log(JSON.stringify({ points: qdrantPoints }, null, 2));\n\nconsole.log('\\n📝 TO UPLOAD TO QDRANT:');\nconsole.log('1. Use Qdrant UI at http://localhost:6333');\nconsole.log('2. Create collection: shopware_products (384 dimensions, Cosine)');\nconsole.log('3. Upload points using the format shown above');\nconsole.log('\\n✅ Or use curl:');\nconsole.log(`curl -X PUT http://localhost:6333/collections/shopware_products/points \\\\`);\nconsole.log(`  -H \"Content-Type: application/json\" \\\\`);\nconsole.log(`  -d '${JSON.stringify({ points: qdrantPoints.slice(0, 2) })}'`);\n\nreturn [{ json: { \n  success: true,\n  totalProducts: data.totalProducts,\n  samplePoints: qdrantPoints,\n  message: 'Products fetched successfully! See console for Qdrant upload instructions.'\n} }];"
+      },
+      "id": "final-node",
+      "name": "Show Qdrant Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Loop Controller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Controller": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Smart Process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Process": {
+      "main": [
+        [
+          {
+            "node": "Route Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Logic": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Show Qdrant Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

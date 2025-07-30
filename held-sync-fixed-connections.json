@@ -1,0 +1,238 @@
+{
+  "name": "Held Sync - Fixed Connections",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize with OAuth token\nconst response = $json;\n\nif (!response.access_token) {\n  throw new Error('OAuth failed: ' + (response.error || 'No token'));\n}\n\nconsole.log('✅ OAuth success, starting sync');\n\nreturn [{\n  json: {\n    token: response.access_token,\n    page: 1,\n    limit: 50,\n    products: [],\n    total: 0\n  }\n}];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process and check pagination\nconst response = $json;\nconst state = $node[\"Initialize\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error:', response.error);\n  return [{\n    json: {\n      ...state,\n      hasMore: false,\n      error: response.error\n    }\n  }];\n}\n\nconst pageProducts = response.data || [];\nconst total = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\n\n// Calculate if more pages\nconst totalPages = Math.ceil(total / limit);\nconst hasMore = currentPage < totalPages;\n\n// Combine products\nconst allProducts = [...state.products, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}/${totalPages}: ${pageProducts.length} products`);\nconsole.log(`📊 Total: ${allProducts.length}/${total}`);\n\nreturn [{\n  json: {\n    token: state.token,\n    page: currentPage + 1,\n    limit: limit,\n    products: allProducts,\n    total: total,\n    hasMore: hasMore,\n    totalPages: totalPages\n  }\n}];"
+      },
+      "id": "process-node",
+      "name": "Process Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-more-check",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-node",
+      "name": "Has More?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final results\nconst data = $json;\n\nconsole.log('\\n🎉 SYNC COMPLETE!');\nconsole.log(`📊 Total products: ${data.products.length}`);\nconsole.log(`📈 Available: ${data.total}`);\n\nreturn [{\n  json: {\n    success: true,\n    totalProducts: data.products.length,\n    products: data.products\n  }\n}];"
+      },
+      "id": "done-node",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Fetch Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Products": {
+      "main": [
+        [
+          {
+            "node": "Process Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Response": {
+      "main": [
+        [
+          {
+            "node": "Has More?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has More?": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

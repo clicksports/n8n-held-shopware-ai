@@ -1,0 +1,236 @@
+{
+  "name": "Enhanced Debug - API Analysis",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page=1&limit=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-standard",
+      "name": "Fetch Standard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page=1&limit=25&includes[product][]=id&includes[product][]=name&includes[product][]=productNumber",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-includes",
+      "name": "Fetch With Includes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page=1&limit=25&aggregations[total][type]=count&aggregations[total][field]=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-aggregations",
+      "name": "Fetch With Aggregations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 500]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page=1&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-minimal",
+      "name": "Fetch Minimal (limit=1)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyze all different API call results\nconst inputs = $input.all();\nconsole.log('\\n🔍 COMPREHENSIVE API ANALYSIS');\nconsole.log('=========================================');\n\nconst tests = {\n  'Standard (limit=25)': inputs[0],\n  'With Includes': inputs[1], \n  'With Aggregations': inputs[2],\n  'Minimal (limit=1)': inputs[3]\n};\n\nfor (const [testName, response] of Object.entries(tests)) {\n  console.log(`\\n📊 ${testName}:`);\n  console.log('  Keys:', Object.keys(response).join(', '));\n  console.log('  Total:', response.total);\n  console.log('  Page:', response.page);\n  console.log('  Limit:', response.limit);\n  console.log('  Data length:', response.data?.length || 0);\n  console.log('  Elements length:', response.elements?.length || 0);\n  \n  if (response.aggregations) {\n    console.log('  Aggregations:', Object.keys(response.aggregations));\n    for (const [aggKey, aggValue] of Object.entries(response.aggregations)) {\n      console.log(`    ${aggKey}:`, aggValue);\n    }\n  }\n  \n  // Show first product structure\n  const firstProduct = response.data?.[0] || response.elements?.[0];\n  if (firstProduct) {\n    console.log('  First product keys:', Object.keys(firstProduct).slice(0, 10).join(', '));\n  }\n}\n\n// Try to understand the API pattern\nconsole.log('\\n🎯 ANALYSIS RESULTS:');\nconst standardResponse = inputs[0];\nconst minimalResponse = inputs[3];\n\nconsole.log('Standard API (limit=25) total:', standardResponse.total);\nconsole.log('Minimal API (limit=1) total:', minimalResponse.total);\n\nif (standardResponse.total === minimalResponse.total && standardResponse.total === 25) {\n  console.log('⚠️  ISSUE IDENTIFIED: API returns limit value as total!');\n  console.log('   This suggests the API is incorrectly reporting pagination metadata.');\n} else {\n  console.log('✅ API pagination metadata appears correct');\n}\n\n// Test URL patterns that might work better\nconsole.log('\\n🔧 SUGGESTED TEST URLS:');\nconst suggestions = [\n  'https://shop.held.de/api/product?page=1&limit=25&total-count-mode=exact',\n  'https://shop.held.de/api/product?page=1&limit=25&filter[active]=1',\n  'https://shop.held.de/api/search/product?page=1&limit=25',\n  'https://shop.held.de/api/product?page=1&limit=25&sort[name]=asc'\n];\n\nsuggestions.forEach((url, i) => {\n  console.log(`  ${i + 1}: ${url}`);\n});\n\nreturn [{ json: { \n  success: true,\n  standardTotal: standardResponse.total,\n  minimalTotal: minimalResponse.total,\n  issue: standardResponse.total === 25 ? 'API_RETURNS_LIMIT_AS_TOTAL' : 'UNKNOWN',\n  suggestions: suggestions\n} }];"
+      },
+      "id": "analyze-node",
+      "name": "Analyze Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 450]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Fetch Standard",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch With Includes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch With Aggregations",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Minimal (limit=1)",
+            "type": "main", 
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Standard": {
+      "main": [
+        [
+          {
+            "node": "Analyze Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch With Includes": {
+      "main": [
+        [
+          {
+            "node": "Analyze Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch With Aggregations": {
+      "main": [
+        [
+          {
+            "node": "Analyze Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Minimal (limit=1)": {
+      "main": [
+        [
+          {
+            "node": "Analyze Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

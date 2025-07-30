@@ -1,0 +1,92 @@
+{
+  "name": "Webhook Trigger - Held Sync",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "held-sync",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 400],
+      "webhookId": "held-sync-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sync ALL products with JavaScript pagination\nconst response = $json;\n\nif (!response.access_token) {\n  throw new Error('OAuth failed: ' + (response.error || 'No token'));\n}\n\nconst token = response.access_token;\nconst limit = 25;\nlet currentPage = 1;\nlet allProducts = [];\nlet hasMore = true;\n\nconsole.log('🚀 Starting complete Held shop sync...');\n\nwhile (hasMore && currentPage <= 100) { // Safety limit\n  console.log(`📄 Fetching page ${currentPage} (limit: ${limit})...`);\n  \n  try {\n    const url = `https://shop.held.de/api/product?page=${currentPage}&limit=${limit}`;\n    const apiResponse = await fetch(url, {\n      method: 'GET',\n      headers: {\n        'Authorization': `Bearer ${token}`,\n        'Accept': 'application/json',\n        'Content-Type': 'application/json'\n      }\n    });\n    \n    if (!apiResponse.ok) {\n      console.log(`❌ HTTP ${apiResponse.status}: ${apiResponse.statusText}`);\n      break;\n    }\n    \n    const data = await apiResponse.json();\n    \n    if (data.error) {\n      console.log('❌ API Error:', data.error);\n      break;\n    }\n    \n    if (!data.data || !Array.isArray(data.data)) {\n      console.log('❌ No data array in response');\n      break;\n    }\n    \n    const pageProducts = data.data;\n    const total = data.total || 0;\n    const totalPages = Math.ceil(total / limit);\n    \n    allProducts = [...allProducts, ...pageProducts];\n    \n    console.log(`✅ Page ${currentPage}/${totalPages}: +${pageProducts.length} products`);\n    console.log(`📊 Progress: ${allProducts.length}/${total} total products`);\n    \n    // Check pagination\n    if (pageProducts.length === 0 || currentPage >= totalPages) {\n      hasMore = false;\n      console.log('🏁 Reached end of data');\n    } else {\n      currentPage++;\n      console.log('⏳ Rate limiting (1s)...');\n      await new Promise(resolve => setTimeout(resolve, 1000));\n    }\n    \n  } catch (error) {\n    console.log('❌ Request failed:', error.message);\n    break;\n  }\n}\n\nconsole.log('\\n🎉 SYNC COMPLETE!');\nconsole.log(`📊 Total products fetched: ${allProducts.length}`);\nconsole.log(`📈 Pages processed: ${currentPage - 1}`);\n\n// Sample products for verification\nconst sampleProducts = allProducts.slice(0, 5).map(p => ({\n  id: p.id,\n  name: p.name || 'No name',\n  active: p.active\n}));\n\nconsole.log('📦 Sample products:', JSON.stringify(sampleProducts, null, 2));\n\nreturn [{\n  json: {\n    success: true,\n    totalProducts: allProducts.length,\n    pagesProcessed: currentPage - 1,\n    sampleProducts: sampleProducts,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "sync-node",
+      "name": "Complete Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Complete Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

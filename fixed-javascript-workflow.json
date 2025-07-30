@@ -1,0 +1,190 @@
+{
+  "name": "Fixed JavaScript - HTTP Requests",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\nreturn [{ json: { token: response.access_token, page: 1, limit: 25, allProducts: [] } }];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process response and route with JavaScript\nconst response = $json;\nconst state = $node[\"Initialize\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error or no data, ending:', response.error);\n  return [\n    null, // Don't continue\n    { json: { ...state, products: state.allProducts, totalProducts: state.allProducts.length, error: response.error } }\n  ];\n}\n\nconst pageProducts = response.data || [];\nconst total = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\nconst totalPages = Math.ceil(total / limit);\nconst allProducts = [...state.allProducts, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}/${totalPages}: +${pageProducts.length} products`);\nconsole.log(`📊 Total collected: ${allProducts.length}/${total}`);\n\nconst newState = {\n  token: state.token,\n  page: currentPage + 1,\n  limit: limit,\n  allProducts: allProducts,\n  totalProducts: allProducts.length,\n  totalAvailable: total\n};\n\n// Check if we should continue\nif (currentPage < totalPages && pageProducts.length > 0) {\n  console.log('✅ Continuing to next page');\n  return [\n    { json: newState }, // Continue pagination\n    null // Don't finish yet\n  ];\n} else {\n  console.log('🏁 Pagination complete!');\n  return [\n    null, // Don't continue\n    { json: { ...newState, products: allProducts } } // Finish\n  ];\n}"
+      },
+      "id": "route-node",
+      "name": "Process & Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconsole.log('\\n🎉 SYNC COMPLETE!');\nconsole.log(`📊 Total products: ${data.totalProducts}`);\nconsole.log(`📈 Available: ${data.totalAvailable}`);\n\n// Show sample products\nif (data.products && data.products.length > 0) {\n  const samples = data.products.slice(0, 3).map(p => ({ id: p.id, name: p.name }));\n  console.log('📦 Sample products:', JSON.stringify(samples, null, 2));\n}\n\nreturn [{ json: { success: true, totalProducts: data.totalProducts, products: data.products || [] } }];"
+      },
+      "id": "done-node",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Process & Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process & Route": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

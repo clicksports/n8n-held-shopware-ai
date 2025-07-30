@@ -1,0 +1,247 @@
+{
+  "name": "Debug Has More Issue",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize with small limit to test pagination\nconst response = $json;\n\nif (!response.access_token) {\n  throw new Error('OAuth failed');\n}\n\nconsole.log('✅ OAuth success');\n\nreturn [{\n  json: {\n    token: response.access_token,\n    page: 1,\n    limit: 5, // Small limit to force multiple pages\n    products: [],\n    total: 0\n  }\n}];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// DEBUG: Detailed pagination analysis\nconst response = $json;\nconst state = $node[\"Initialize\"].json;\n\nconsole.log('\\n🔍 DETAILED PAGINATION DEBUG:');\nconsole.log('API Response keys:', Object.keys(response));\nconsole.log('Response.data exists:', !!response.data);\nconsole.log('Response.data length:', Array.isArray(response.data) ? response.data.length : 'not array');\nconsole.log('Response.total:', response.total);\nconsole.log('Response.page:', response.page);\nconsole.log('Response.limit:', response.limit);\n\nif (response.error) {\n  console.log('❌ API Error:', response.error);\n  return [{\n    json: {\n      ...state,\n      hasMore: false,\n      error: response.error\n    }\n  }];\n}\n\nconst pageProducts = response.data || [];\nconst total = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\n\nconsole.log('\\n📊 PAGINATION CALCULATION:');\nconsole.log('pageProducts.length:', pageProducts.length);\nconsole.log('total from API:', total);\nconsole.log('currentPage:', currentPage);\nconsole.log('limit:', limit);\n\n// Calculate total pages\nconst totalPages = Math.ceil(total / limit);\nconsole.log('calculated totalPages:', totalPages);\nconsole.log('currentPage < totalPages:', currentPage < totalPages);\n\n// Determine hasMore\nconst hasMore = currentPage < totalPages;\nconsole.log('\\n🔄 HASMORE DECISION:');\nconsole.log('hasMore value:', hasMore);\nconsole.log('hasMore type:', typeof hasMore);\nconsole.log('Boolean(hasMore):', Boolean(hasMore));\n\n// Combine products\nconst allProducts = [...state.products, ...pageProducts];\n\nconsole.log('\\n📈 PROGRESS:');\nconsole.log(`Page ${currentPage}/${totalPages}: ${pageProducts.length} products`);\nconsole.log(`Total collected: ${allProducts.length}/${total}`);\nconsole.log(`Will continue: ${hasMore}`);\n\n// Return with explicit boolean\nconst result = {\n  token: state.token,\n  page: currentPage + 1,\n  limit: limit,\n  products: allProducts,\n  total: total,\n  hasMore: Boolean(hasMore), // Force boolean\n  totalPages: totalPages,\n  debug: {\n    apiTotal: total,\n    calculatedPages: totalPages,\n    currentPage: currentPage,\n    shouldContinue: currentPage < totalPages\n  }\n};\n\nconsole.log('\\n📤 RETURNING:');\nconsole.log('hasMore in result:', result.hasMore);\nconsole.log('hasMore type in result:', typeof result.hasMore);\n\nreturn [{ json: result }];"
+      },
+      "id": "debug-node",
+      "name": "Debug Process",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Debug what the IF node receives\nconst data = $json;\n\nconsole.log('\\n🎯 IF NODE INPUT DEBUG:');\nconsole.log('Full data object:', JSON.stringify(data, null, 2));\nconsole.log('data.hasMore:', data.hasMore);\nconsole.log('data.hasMore type:', typeof data.hasMore);\nconsole.log('data.hasMore === true:', data.hasMore === true);\nconsole.log('data.hasMore == true:', data.hasMore == true);\n\nreturn $input.all();"
+      },
+      "id": "pre-if-debug",
+      "name": "Pre-IF Debug",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-more-check",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-node",
+      "name": "IF Test",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ TRUE BRANCH - IF condition worked!');\nconst data = $json;\nconsole.log('Will fetch page:', data.page);\nreturn $input.all();"
+      },
+      "id": "true-node",
+      "name": "TRUE Branch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('❌ FALSE BRANCH - IF condition failed!');\nconst data = $json;\nconsole.log('Final products count:', data.products.length);\nconsole.log('Debug info:', data.debug);\nreturn $input.all();"
+      },
+      "id": "false-node",
+      "name": "FALSE Branch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Fetch Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Products": {
+      "main": [
+        [
+          {
+            "node": "Debug Process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug Process": {
+      "main": [
+        [
+          {
+            "node": "Pre-IF Debug",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pre-IF Debug": {
+      "main": [
+        [
+          {
+            "node": "IF Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Test": {
+      "main": [
+        [
+          {
+            "node": "TRUE Branch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FALSE Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "name": "TEST: LangChain Qdrant Integration",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create test products\nconst testProducts = [\n  {\n    id: \"test-001\",\n    name: \"HELD Sambia 2in1 Touring Gloves\",\n    productNumber: \"2360-black-9\",\n    description: \"Waterproof touring glove with removable inner lining\",\n    price: { gross: 139.95 },\n    manufacturer: { name: \"HELD\" },\n    active: true\n  },\n  {\n    id: \"test-002\",\n    name: \"HELD Aeroste Leather Jacket\",\n    productNumber: \"5823-black-52\",\n    description: \"Premium leather motorcycle jacket with CE protection\",\n    price: { gross: 599.95 },\n    manufacturer: { name: \"HELD\" },\n    active: true\n  }\n];\n\nconsole.log('🧪 Testing with 2 sample products');\nreturn [{ json: { products: testProducts } }];"
+      },
+      "id": "test-data",
+      "name": "Test Products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform to LangChain document format\nconst data = $json;\nconst products = data.products;\n\nconsole.log(`📄 Transforming ${products.length} products to documents...`);\n\nconst documents = products.map((product, idx) => {\n  // Create text for embedding\n  const textParts = [];\n  if (product.name) textParts.push(`Product: ${product.name}`);\n  if (product.productNumber) textParts.push(`SKU: ${product.productNumber}`);\n  if (product.description) textParts.push(`Description: ${product.description}`);\n  if (product.price?.gross) textParts.push(`Price: €${product.price.gross}`);\n  if (product.manufacturer?.name) textParts.push(`Brand: ${product.manufacturer.name}`);\n  \n  const pageContent = textParts.join('. ');\n  \n  return {\n    json: {\n      pageContent: pageContent,\n      metadata: {\n        product_id: product.id,\n        name: product.name,\n        sku: product.productNumber,\n        price: product.price?.gross || 0,\n        source: 'shopware-test'\n      }\n    }\n  };\n});\n\nconsole.log('✅ Documents ready:');\nconsole.log(documents[0].json);\n\nreturn documents;"
+      },
+      "id": "transform-docs",
+      "name": "Transform to Docs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "embeddings",
+      "name": "OpenAI Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [800, 500]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "mode": "list",
+          "value": "test_products"
+        },
+        "options": {}
+      },
+      "id": "qdrant-store",
+      "name": "Qdrant Insert",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json;\nconsole.log('\\n✅ TEST COMPLETE!');\nconsole.log('==================');\nconsole.log('Result:', result);\nconsole.log('\\nCheck Qdrant at http://localhost:6333/dashboard');\nconsole.log('Collection: test_products');\n\nreturn [{ json: { success: true, result: result } }];"
+      },
+      "id": "success",
+      "name": "Test Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Test Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Products": {
+      "main": [
+        [
+          {
+            "node": "Transform to Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform to Docs": {
+      "main": [
+        [
+          {
+            "node": "Qdrant Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Insert",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Insert": {
+      "main": [
+        [
+          {
+            "node": "Test Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

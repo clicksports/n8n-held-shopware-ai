@@ -1,0 +1,119 @@
+{
+  "name": "Debug API Response - Test Total Count",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page=1&limit=25",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Page 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nconsole.log('\\n🔍 API RESPONSE ANALYSIS:');\nconsole.log('Keys in response:', Object.keys(response));\nconsole.log('\\nPagination fields:');\nconsole.log('  response.total:', response.total);\nconsole.log('  response.page:', response.page);\nconsole.log('  response.limit:', response.limit);\nconsole.log('  response.data.length:', response.data?.length);\n\nif (response.elements) {\n  console.log('  response.elements.length:', response.elements.length);\n}\n\nif (response.aggregations) {\n  console.log('  response.aggregations:', Object.keys(response.aggregations));\n}\n\nconsole.log('\\nFull response structure:');\nconsole.log(JSON.stringify(response, null, 2).substring(0, 500) + '...');\n\n// Try different URL patterns\nconst tests = {\n  current: 'page=1&limit=25',\n  withIncludes: 'page=1&limit=25&includes[product][]',\n  withAssociations: 'page=1&limit=25&associations[categories][]',\n  withAggregations: 'page=1&limit=25&aggregations[total][type]=count'\n};\n\nconsole.log('\\n📋 URL PATTERN TESTS TO TRY:');\nfor (const [name, params] of Object.entries(tests)) {\n  console.log(`  ${name}: https://shop.held.de/api/product?${params}`);\n}\n\nreturn [{ json: { \n  success: true, \n  responseTotal: response.total,\n  dataLength: response.data?.length,\n  suggestions: Object.keys(tests)\n} }];"
+      },
+      "id": "debug-node",
+      "name": "Debug API Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page 1": {
+      "main": [
+        [
+          {
+            "node": "Debug API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

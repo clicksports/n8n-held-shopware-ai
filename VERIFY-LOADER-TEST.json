@@ -1,0 +1,137 @@
+{
+  "name": "VERIFY: Document Loader Test",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create test data in the same format as Transform to Documents\nconst documents = [\n  {\n    text: 'Product: HELD Sambia Gloves. SKU: 2360. Waterproof touring glove. Price: €139.95',\n    metadata: {\n      product_id: 'test-001',\n      name: 'HELD Sambia Gloves',\n      sku: '2360',\n      price: 139.95\n    }\n  },\n  {\n    text: 'Product: HELD Jacket. SKU: 5823. Leather motorcycle jacket. Price: €599.95',\n    metadata: {\n      product_id: 'test-002',\n      name: 'HELD Jacket',\n      sku: '5823',\n      price: 599.95\n    }\n  }\n];\n\nconsole.log('📄 Test documents:', documents);\nreturn [{ json: { documents } }];"
+      },
+      "id": "create-data",
+      "name": "Create Test Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "dataType": "json",
+        "jsonLoader": {
+          "fieldsToExtract": "documents[*]",
+          "options": {
+            "metadata": "={{ $json.metadata }}",
+            "textContent": "={{ $json.text }}"
+          }
+        }
+      },
+      "id": "loader",
+      "name": "Document Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [600, 500]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "embeddings",
+      "name": "OpenAI Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [600, 600]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "mode": "list",
+          "value": "test_loader"
+        },
+        "qdrantCollectionName": "test_loader",
+        "qdrantURL": "http://qdrant:6333",
+        "options": {}
+      },
+      "id": "qdrant",
+      "name": "Qdrant Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ Test complete!');\nreturn [{ json: { success: true } }];"
+      },
+      "id": "done",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Create Test Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Test Data": {
+      "main": [
+        [
+          {
+            "node": "Qdrant Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Qdrant Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Store": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "name": "Simple Shopware Test",
+  "active": false,
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Test initial data structure\nconst testData = {\n  page: 1,\n  limit: 10,\n  hasMore: true\n};\n\nconsole.log('🧪 Test data created:');\nconsole.log('hasMore value:', testData.hasMore);\nconsole.log('hasMore type:', typeof testData.hasMore);\nconsole.log('Full object:', JSON.stringify(testData, null, 2));\n\nreturn [{ json: testData }];"
+      },
+      "id": "create-test-data",
+      "name": "Create Test Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-test",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "test-if-node",
+      "name": "Test IF Node",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ TRUE branch - hasMore condition worked!');\nreturn $input.all();"
+      },
+      "id": "true-branch",
+      "name": "TRUE Branch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('❌ FALSE branch - hasMore condition failed');\nconsole.log('Input data:', JSON.stringify($json, null, 2));\nreturn $input.all();"
+      },
+      "id": "false-branch",
+      "name": "FALSE Branch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    }
+  ],
+  "connections": {
+    "manual-trigger": {
+      "main": [
+        [
+          {
+            "node": "create-test-data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create-test-data": {
+      "main": [
+        [
+          {
+            "node": "test-if-node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "test-if-node": {
+      "main": [
+        [
+          {
+            "node": "true-branch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "false-branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

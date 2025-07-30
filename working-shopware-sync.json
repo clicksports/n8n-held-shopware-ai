@@ -1,0 +1,354 @@
+{
+  "name": "Working Shopware Sync",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-node",
+      "name": "Manual Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize sync with flat structure\nconst config = {\n  page: 1,\n  limit: 50,\n  hasMore: true,\n  allProducts: [],\n  totalFetched: 0,\n  errors: []\n};\n\nconsole.log('🚀 Starting sync with config:', JSON.stringify(config, null, 2));\nreturn [{ json: config }];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "more-pages",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-more-node",
+      "name": "Has More Pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  page: $json.page,\n  limit: $json.limit,\n  filter: [{\n    type: \"equals\",\n    field: \"active\",\n    value: true\n  }],\n  includes: {\n    product: [\"id\", \"name\", \"productNumber\", \"description\", \"price\", \"stock\", \"availableStock\"]\n  }\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process API response\nconst response = $input.first().json;\nconst config = $node[\"Has More Pages?\"].json;\n\nconsole.log('📥 API Response keys:', Object.keys(response));\nconsole.log('📊 Previous config:', JSON.stringify(config, null, 2));\n\nif (response.error) {\n  console.error('❌ API Error:', response.error);\n  return [{\n    json: {\n      ...config,\n      hasMore: false,\n      errors: [...config.errors, response.error]\n    }\n  }];\n}\n\nconst products = response.data || [];\nconst total = response.total || 0;\nconst currentPage = config.page;\n\n// Calculate if more pages exist\nconst totalPages = Math.ceil(total / config.limit);\nconst hasMore = currentPage < totalPages;\n\n// Update products array\nconst allProducts = [...config.allProducts, ...products];\n\nconsole.log(`📄 Page ${currentPage}/${totalPages}: Got ${products.length} products`);\nconsole.log(`📈 Total collected: ${allProducts.length}/${total}`);\nconsole.log(`🔄 Has more: ${hasMore}`);\n\nreturn [{\n  json: {\n    page: currentPage + 1,\n    limit: config.limit,\n    hasMore: hasMore,\n    allProducts: allProducts,\n    totalFetched: allProducts.length,\n    totalAvailable: total,\n    errors: config.errors\n  }\n}];"
+      },
+      "id": "process-node",
+      "name": "Process Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "continue-loop",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "continue-node",
+      "name": "Continue Loop?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final processing\nconst data = $json;\nconst products = data.allProducts || [];\n\nconsole.log('\\n🎉 Pagination Complete!');\nconsole.log(`📊 Total products: ${products.length}`);\nconsole.log(`❌ Errors: ${data.errors.length}`);\n\n// Create Qdrant points\nconst points = products.map((product, index) => ({\n  id: parseInt(product.id) || index + 1,\n  payload: {\n    name: product.name,\n    sku: product.productNumber,\n    description: product.description || '',\n    price: product.price?.[0]?.gross || 0,\n    stock: product.availableStock || 0,\n    indexed: new Date().toISOString()\n  },\n  vector: Array.from({length: 384}, () => Math.random())\n}));\n\nconsole.log(`✨ Created ${points.length} Qdrant points`);\nreturn points;"
+      },
+      "id": "finalize-node",
+      "name": "Finalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 500]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_working_test",
+        "httpMethod": "DELETE",
+        "options": {
+          "timeout": 10000
+        },
+        "continueOnFail": true
+      },
+      "id": "delete-node",
+      "name": "Delete Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_working_test",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"vectors\": {\"size\": 384, \"distance\": \"Cosine\"}}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "create-node",
+      "name": "Create Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 500]
+    },
+    {
+      "parameters": {
+        "batchSize": 20,
+        "options": {}
+      },
+      "id": "batch-node",
+      "name": "Batch Upload",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1800, 600]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_working_test/points",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ points: $json }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "upload-node",
+      "name": "Upload Points",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('✅ Upload batch completed');\nreturn [{ json: { success: true, uploaded: Array.isArray($json) ? $json.length : 1 } }];"
+      },
+      "id": "success-node",
+      "name": "Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 600]
+    }
+  ],
+  "connections": {
+    "Manual Start": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Has More Pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has More Pages?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Products",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Products": {
+      "main": [
+        [
+          {
+            "node": "Process Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Response": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Continue Loop?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue Loop?": {
+      "main": [
+        [
+          {
+            "node": "Has More Pages?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Data": {
+      "main": [
+        [
+          {
+            "node": "Delete Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Collection": {
+      "main": [
+        [
+          {
+            "node": "Create Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Collection": {
+      "main": [
+        [
+          {
+            "node": "Batch Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Upload": {
+      "main": [
+        [
+          {
+            "node": "Upload Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Points": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

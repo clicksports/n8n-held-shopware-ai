@@ -1,0 +1,68 @@
+{
+  "name": "Debug API Call",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"page\": 1,\n  \"limit\": 10,\n  \"filter\": [{\n    \"type\": \"equals\",\n    \"field\": \"active\",\n    \"value\": true\n  }],\n  \"includes\": {\n    \"product\": [\"id\", \"name\", \"productNumber\"]\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "test-api-call",
+      "name": "Test API Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Debug the API response\nconst response = $json;\n\nconsole.log('🔍 FULL API RESPONSE DEBUG:');\nconsole.log('Response type:', typeof response);\nconsole.log('Response keys:', Object.keys(response));\nconsole.log('Full response:', JSON.stringify(response, null, 2));\n\n// Check specific fields\nconsole.log('\\n📊 RESPONSE ANALYSIS:');\nconsole.log('Has data field:', 'data' in response);\nconsole.log('Data type:', typeof response.data);\nconsole.log('Data value:', response.data);\nconsole.log('Has total field:', 'total' in response);\nconsole.log('Total value:', response.total);\nconsole.log('Has error field:', 'error' in response);\nconsole.log('Error value:', response.error);\n\n// Check HTTP status\nif (response.statusCode) {\n  console.log('HTTP Status:', response.statusCode);\n}\n\n// Check for common Shopware response structures\nif (response.elements) {\n  console.log('\\n🎯 Found .elements field (alternative structure)');\n  console.log('Elements length:', response.elements?.length);\n}\n\nif (response.data && Array.isArray(response.data)) {\n  console.log('\\n✅ SUCCESS - Found products array');\n  console.log('Products count:', response.data.length);\n  if (response.data.length > 0) {\n    console.log('First product sample:', JSON.stringify(response.data[0], null, 2));\n  }\n} else if (response.data) {\n  console.log('\\n⚠️  Data field exists but is not an array');\n  console.log('Data content:', response.data);\n} else {\n  console.log('\\n❌ NO DATA FIELD FOUND');\n}\n\nif (response.error) {\n  console.log('\\n❌ API ERROR DETECTED:');\n  console.log('Error:', response.error);\n}\n\n// Return analysis\nreturn [{\n  json: {\n    responseAnalysis: {\n      hasData: 'data' in response,\n      dataType: typeof response.data,\n      dataLength: Array.isArray(response.data) ? response.data.length : 'not array',\n      hasTotal: 'total' in response,\n      totalValue: response.total,\n      hasError: 'error' in response,\n      errorValue: response.error,\n      httpStatus: response.statusCode,\n      allKeys: Object.keys(response)\n    },\n    rawResponse: response\n  }\n}];"
+      },
+      "id": "debug-response",
+      "name": "Debug Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Test API Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test API Call": {
+      "main": [
+        [
+          {
+            "node": "Debug Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

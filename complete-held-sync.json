@@ -1,0 +1,251 @@
+{
+  "name": "Complete Held Shop Sync",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "oauth-token",
+      "name": "Get OAuth Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize pagination with OAuth token\nconst response = $json;\n\nif (!response.access_token) {\n  throw new Error('OAuth failed: ' + (response.error || 'No access token'));\n}\n\nconsole.log('✅ OAuth token obtained, starting pagination');\n\nreturn [{\n  json: {\n    accessToken: response.access_token,\n    page: 1,\n    limit: 50,\n    allProducts: [],\n    totalFetched: 0\n  }\n}];"
+      },
+      "id": "init-pagination",
+      "name": "Initialize Pagination",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.accessToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-page",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process page response and update pagination state\nconst response = $json;\nconst previousState = $node[\"Initialize Pagination\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ API Error:', response.error);\n  return [{\n    json: {\n      ...previousState,\n      error: true,\n      errorMessage: response.error || 'No data received',\n      hasMore: false\n    }\n  }];\n}\n\nconst products = response.data || [];\nconst total = response.total || 0;\nconst currentPage = response.page || previousState.page;\nconst limit = response.limit || previousState.limit;\n\n// Calculate pagination\nconst totalPages = Math.ceil(total / limit);\nconst hasMore = currentPage < totalPages;\n\n// Accumulate products\nconst allProducts = [...previousState.allProducts, ...products];\n\nconsole.log(`📄 Page ${currentPage}/${totalPages}: ${products.length} products`);\nconsole.log(`📊 Total collected: ${allProducts.length}/${total}`);\nconsole.log(`🔄 Has more: ${hasMore}`);\n\n// Log sample product from first page\nif (currentPage === 1 && products.length > 0) {\n  console.log('📦 Sample product:', {\n    id: products[0].id,\n    name: products[0].name,\n    active: products[0].active\n  });\n}\n\nreturn [{\n  json: {\n    accessToken: previousState.accessToken,\n    page: currentPage + 1,\n    limit: limit,\n    allProducts: allProducts,\n    totalFetched: allProducts.length,\n    totalAvailable: total,\n    totalPages: totalPages,\n    hasMore: hasMore,\n    currentPageProducts: products\n  }\n}];"
+      },
+      "id": "process-page",
+      "name": "Process Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-more",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            },
+            {
+              "id": "not-error",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-continue",
+      "name": "Continue Pagination?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "rate-limit",
+      "name": "Rate Limit",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final processing when pagination complete\nconst data = $json;\n\nconsole.log('\\n🎉 PAGINATION COMPLETE!');\nconsole.log(`📊 Final Statistics:`);\nconsole.log(`   Products collected: ${data.totalFetched}`);\nconsole.log(`   Products available: ${data.totalAvailable}`);\nconsole.log(`   Pages processed: ${data.totalPages || 'unknown'}`);\nconsole.log(`   Success rate: ${Math.round((data.totalFetched / data.totalAvailable) * 100)}%`);\n\nif (data.error) {\n  console.log(`❌ Final status: Error - ${data.errorMessage}`);\n} else {\n  console.log(`✅ Final status: Success`);\n}\n\n// Create optimized structure for Qdrant\nconst optimizedProducts = (data.allProducts || []).map((product, index) => {\n  const name = product.name || '';\n  const description = product.description ? \n    product.description.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim() : '';\n  \n  // Create searchable content\n  const contentParts = [name];\n  if (description) contentParts.push(description.substring(0, 300));\n  if (product.ean) contentParts.push(`EAN: ${product.ean}`);\n  \n  const content = contentParts.join(' | ');\n  \n  // Extract price\n  let price = 0;\n  if (Array.isArray(product.price) && product.price.length > 0) {\n    price = product.price[0].gross || 0;\n  }\n  \n  return {\n    id: parseInt(product.id) || index + 1,\n    payload: {\n      content: content,\n      metadata: {\n        id: product.id,\n        name: name,\n        price: price,\n        currency: 'EUR',\n        stock: product.stock || 0,\n        active: Boolean(product.active),\n        ean: product.ean || '',\n        source: 'held-shop',\n        indexed: new Date().toISOString()\n      }\n    },\n    vector: Array.from({length: 384}, () => Math.random()) // Placeholder vector\n  };\n});\n\nconsole.log(`🚀 Prepared ${optimizedProducts.length} products for vector database`);\n\nreturn [{\n  json: {\n    success: !data.error,\n    summary: {\n      totalProducts: data.totalFetched,\n      totalAvailable: data.totalAvailable,\n      errorMessage: data.errorMessage || null\n    },\n    products: optimizedProducts\n  }\n}];"
+      },
+      "id": "finalize",
+      "name": "Finalize Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth Token": {
+      "main": [
+        [
+          {
+            "node": "Initialize Pagination",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Pagination": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Process Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Page": {
+      "main": [
+        [
+          {
+            "node": "Check Continue Pagination?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Continue Pagination?": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

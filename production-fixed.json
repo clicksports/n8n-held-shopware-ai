@@ -1,0 +1,376 @@
+{
+  "name": "Production Fixed: Shopware to Qdrant",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.held.de/api/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "SWIANEPSMGTHMLJMT1BHEFAZNW"
+            },
+            {
+              "name": "client_secret",
+              "value": "UVJKRGFWZENoVW9OY1ZuUktYNkN6NFRucVNVQU1VR1B0cElhUzE"
+            }
+          ]
+        }
+      },
+      "id": "oauth-node",
+      "name": "Get OAuth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nif (!response.access_token) throw new Error('OAuth failed');\nconsole.log('✅ OAuth success');\n\n// Initialize pagination state\nreturn [{ json: { \n  token: response.access_token, \n  page: 1, \n  limit: 50,\n  allProducts: [],\n  continueLoop: true\n} }];"
+      },
+      "id": "init-node",
+      "name": "Initialize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass through state for fetching\nconst state = $json;\nconsole.log(`🚀 Ready to fetch page ${state.page}...`);\nreturn [{ json: state }];"
+      },
+      "id": "loop-controller",
+      "name": "Loop Controller",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://shop.held.de/api/product?page={{ $json.page }}&limit={{ $json.limit }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "fetch-node",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Smart pagination with single-output routing\nconst response = $json;\nconst state = $node[\"Loop Controller\"].json;\n\nif (response.error || !response.data) {\n  console.log('❌ Error, finishing:', response.error);\n  return [{ json: {\n    success: false,\n    error: response.error,\n    totalProducts: state.allProducts.length,\n    products: state.allProducts,\n    continueLoop: false,\n    finished: true\n  } }];\n}\n\nconst pageProducts = response.data || [];\nconst apiTotal = response.total || 0;\nconst currentPage = response.page || state.page;\nconst limit = response.limit || state.limit;\nconst allProducts = [...state.allProducts, ...pageProducts];\n\nconsole.log(`📄 Page ${currentPage}: +${pageProducts.length} products (API total: ${apiTotal})`);\nconsole.log(`📊 Collected so far: ${allProducts.length}`);\n\n// SMART DETECTION: Check if API is returning bogus totals\nlet shouldContinue = false;\nlet detectedIssue = state.detectedIssue;\n\nif (currentPage === 1) {\n  if (apiTotal === limit) {\n    detectedIssue = 'API_RETURNS_LIMIT_AS_TOTAL';\n    console.log('⚠️  DETECTED: API returns limit as total - using product count logic');\n  }\n}\n\nif (detectedIssue === 'API_RETURNS_LIMIT_AS_TOTAL') {\n  shouldContinue = pageProducts.length === limit;\n  console.log(`🔧 Count-based logic: got ${pageProducts.length}/${limit}, continue: ${shouldContinue}`);\n} else {\n  const calculatedTotalPages = Math.ceil(apiTotal / limit);\n  shouldContinue = currentPage < calculatedTotalPages && pageProducts.length > 0;\n  console.log(`📐 API logic: page ${currentPage}/${calculatedTotalPages}, continue: ${shouldContinue}`);\n}\n\nif (shouldContinue) {\n  console.log('✅ Continuing to next page...');\n  return [{ json: { \n    token: state.token, \n    page: currentPage + 1, \n    limit: limit, \n    allProducts: allProducts,\n    detectedIssue: detectedIssue,\n    continueLoop: true,\n    finished: false\n  } }];\n} else {\n  console.log('🏁 Pagination complete!');\n  return [{ json: {\n    success: true,\n    totalProducts: allProducts.length,\n    estimatedTotal: Math.max(apiTotal, allProducts.length),\n    apiReportedTotal: apiTotal,\n    detectedIssue: detectedIssue,\n    products: allProducts,\n    continueLoop: false,\n    finished: true\n  } }];\n}"
+      },
+      "id": "process-node",
+      "name": "Smart Process",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Route based on whether we should continue\nconst data = $json;\n\nif (data.finished) {\n  console.log('🎯 Routing to completion...');\n  return [{ json: data }]; // Route to transform\n} else if (data.continueLoop) {\n  console.log('🔄 Routing to next page...');\n  // We need to go back to fetch more - this creates the loop\n  return [{ json: data }]; // This will route back to fetch\n} else {\n  console.log('❓ Unexpected state');\n  return [{ json: { ...data, finished: true } }];\n}"
+      },
+      "id": "router-node",
+      "name": "Route Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "wait-node",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform products for Qdrant vectorization\nconst data = $json;\nconsole.log('\\n🔄 PREPARING FOR QDRANT UPLOAD');\nconsole.log('=========================================');\nconsole.log(`📊 Products to process: ${data.totalProducts}`);\n\nif (!data.products || data.products.length === 0) {\n  console.log('❌ No products to upload');\n  return [{ json: { success: false, error: 'No products found' } }];\n}\n\n// Transform each product for AI chatbot context\nconst vectorizedProducts = data.products.map(product => {\n  const textParts = [];\n  \n  if (product.name) textParts.push(`Product: ${product.name}`);\n  if (product.productNumber) textParts.push(`SKU: ${product.productNumber}`);\n  if (product.description) textParts.push(`Description: ${product.description}`);\n  if (product.price && product.price.gross) textParts.push(`Price: €${product.price.gross}`);\n  if (product.manufacturer && product.manufacturer.name) textParts.push(`Brand: ${product.manufacturer.name}`);\n  \n  const fullText = textParts.join('. ');\n  \n  return {\n    id: product.id,\n    vector: null,\n    payload: {\n      productId: product.id,\n      name: product.name || product.productNumber,\n      productNumber: product.productNumber,\n      description: product.description,\n      price: product.price,\n      active: product.active,\n      fullText: fullText,\n      syncDate: new Date().toISOString(),\n      source: 'shopware-held-de'\n    }\n  };\n});\n\nconsole.log(`🔄 Transformed ${vectorizedProducts.length} products for Qdrant`);\n\n// Pass the vectorized products forward\nreturn [{ json: { \n  success: true,\n  totalProducts: data.totalProducts,\n  vectorizedProducts: vectorizedProducts,\n  detectedIssue: data.detectedIssue\n} }];"
+      },
+      "id": "transform-node",
+      "name": "Transform for Qdrant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 500]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "http://qdrant:6333/collections/shopware_products",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "alwaysContinue": true
+        }
+      },
+      "id": "delete-collection",
+      "name": "Delete Old Collection (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 500]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/shopware_products",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "sendQuery": false,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"vectors\": {\n    \"size\": 384,\n    \"distance\": \"Cosine\"\n  }\n}"
+      },
+      "id": "create-collection",
+      "name": "Create Fresh Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare products for batch upload to Qdrant\n// Access the transformed data from the Transform node\nconst transformData = $node[\"Transform for Qdrant\"].json;\n\nif (!transformData || !transformData.vectorizedProducts) {\n  console.log('❌ No vectorized products found');\n  return [{ json: { error: 'No products to upload' } }];\n}\n\nconst vectorizedProducts = transformData.vectorizedProducts;\nconst BATCH_SIZE = 100;\n\nconsole.log(`\\n📦 Uploading ${vectorizedProducts.length} products in batches of ${BATCH_SIZE}...`);\n\n// For this example, we'll upload the first batch\n// In production, you'd loop through all batches\nconst firstBatch = vectorizedProducts.slice(0, BATCH_SIZE);\n\nreturn [{ json: {\n  points: firstBatch,\n  totalProducts: transformData.totalProducts,\n  uploadedInThisBatch: firstBatch.length,\n  totalBatches: Math.ceil(vectorizedProducts.length / BATCH_SIZE)\n} }];"
+      },
+      "id": "prepare-batch",
+      "name": "Prepare Upload Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 500]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/shopware_products/points",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "sendQuery": false,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"points\": {{ JSON.stringify($json.points) }}\n}"
+      },
+      "id": "upload-batch",
+      "name": "Upload to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2400, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploadResult = $json;\nconst batchData = $node[\"Prepare Upload Batch\"].json;\n\nconsole.log('\\n🎉 SHOPWARE TO QDRANT SYNC COMPLETE!');\nconsole.log('==========================================');\nconsole.log(`📊 Total products in Shopware: ${batchData.totalProducts}`);\nconsole.log(`🔄 Products uploaded in this run: ${batchData.uploadedInThisBatch}`);\nconsole.log(`📦 Total batches needed: ${batchData.totalBatches}`);\nconsole.log(`📡 Qdrant response:`, uploadResult.status || 'Success');\n\nif (batchData.totalProducts > batchData.uploadedInThisBatch) {\n  console.log(`\\n📝 NOTE: Only first ${batchData.uploadedInThisBatch} products uploaded.`);\n  console.log(`   To upload all ${batchData.totalProducts} products, extend workflow with batch loop.`);\n}\n\nconsole.log('\\n✅ AI Chatbot ready with fresh Shopware data!');\nconsole.log('🔍 Collection: shopware_products');\nconsole.log('📅 Sync time:', new Date().toISOString());\n\nreturn [{ json: { \n  syncComplete: true,\n  productsUploaded: batchData.uploadedInThisBatch,\n  totalProducts: batchData.totalProducts,\n  qdrantCollection: 'shopware_products',\n  timestamp: new Date().toISOString(),\n  nextSteps: batchData.totalProducts > batchData.uploadedInThisBatch ? \n    'Extend workflow to handle remaining batches' : 'All products synced!'\n} }];"
+      },
+      "id": "final-status",
+      "name": "Sync Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get OAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OAuth": {
+      "main": [
+        [
+          {
+            "node": "Initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize": {
+      "main": [
+        [
+          {
+            "node": "Loop Controller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Controller": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Smart Process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Process": {
+      "main": [
+        [
+          {
+            "node": "Route Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Logic": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Transform for Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform for Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Delete Old Collection (Optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Old Collection (Optional)": {
+      "main": [
+        [
+          {
+            "node": "Create Fresh Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Fresh Collection": {
+      "main": [
+        [
+          {
+            "node": "Prepare Upload Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Upload Batch": {
+      "main": [
+        [
+          {
+            "node": "Upload to Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Sync Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

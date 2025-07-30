@@ -1,0 +1,383 @@
+{
+  "name": "Shopware to Qdrant - Debug Fixed",
+  "active": false,
+  "version": "3.2.0",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize pagination - simplified structure\nconst syncConfig = {\n  page: 1,\n  limit: 100,\n  totalPages: null,\n  allProducts: [],\n  hasMore: true,\n  startTime: new Date().toISOString(),\n  fetchedPages: 0,\n  errors: []\n};\n\nconsole.log(`🚀 Starting full catalog sync`);\nconsole.log(`📋 Initial state:`, JSON.stringify(syncConfig, null, 2));\n\nreturn [{ json: syncConfig }];"
+      },
+      "id": "init-sync",
+      "name": "Initialize Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Debug: Log the incoming data\nconst data = $json;\nconsole.log(`🔍 Debug - Incoming data:`, JSON.stringify(data, null, 2));\nconsole.log(`🔍 Debug - hasMore value:`, data.hasMore);\nconsole.log(`🔍 Debug - hasMore type:`, typeof data.hasMore);\n\nreturn $input.all();"
+      },
+      "id": "debug-data",
+      "name": "Debug Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-has-more",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-has-more",
+      "name": "Check Has More Products",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [780, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopwareApi",
+        "url": "/api/search/product",
+        "httpMethod": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  page: $json.page,\n  limit: $json.limit,\n  filter: [\n    {\n      type: \"equals\",\n      field: \"active\",\n      value: true\n    }\n  ],\n  includes: {\n    product: [\n      \"id\", \"name\", \"productNumber\", \"description\", \"active\",\n      \"stock\", \"availableStock\", \"price\", \"manufacturerId\",\n      \"categoryIds\", \"propertyIds\", \"tagIds\", \"media\",\n      \"customFields\", \"createdAt\", \"updatedAt\", \"ean\"\n    ]\n  },\n  sort: [{\n    field: \"createdAt\",\n    order: \"ASC\"\n  }]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-products-page",
+      "name": "Fetch Products Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [980, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process pagination response\nconst response = $input.first().json;\nconst previousData = $node[\"Check Has More Products\"].json;\n\nconsole.log(`📥 API Response:`, JSON.stringify(response, null, 2));\nconsole.log(`📋 Previous data:`, JSON.stringify(previousData, null, 2));\n\n// Handle API errors\nif (response.error || !response.data) {\n  console.error(`❌ Error fetching page ${previousData.page}:`, response.error || 'No data received');\n  \n  return [{\n    json: {\n      ...previousData,\n      page: previousData.page + 1,\n      hasMore: false, // Stop on error\n      errors: [...(previousData.errors || []), {\n        page: previousData.page,\n        error: response.error || 'No data received'\n      }]\n    }\n  }];\n}\n\n// Extract products from response\nconst products = response.data || [];\nconst total = response.total || 0;\nconst currentPage = previousData.page;\nconst limit = previousData.limit;\n\n// Calculate pagination\nconst totalPages = Math.ceil(total / limit);\nconst hasMore = currentPage < totalPages;\n\n// Accumulate products\nconst allProducts = [...(previousData.allProducts || []), ...products];\n\nconsole.log(`📄 Page ${currentPage}/${totalPages}: Fetched ${products.length} products`);\nconsole.log(`📊 Progress: ${allProducts.length}/${total} products`);\nconsole.log(`🔄 Has more pages: ${hasMore}`);\n\nreturn [{\n  json: {\n    page: currentPage + 1,\n    limit: limit,\n    totalPages: totalPages,\n    allProducts: allProducts,\n    hasMore: hasMore,\n    currentBatch: products,\n    fetchedPages: (previousData.fetchedPages || 0) + 1,\n    totalFetched: allProducts.length,\n    totalAvailable: total,\n    startTime: previousData.startTime,\n    errors: previousData.errors || []\n  }\n}];"
+      },
+      "id": "process-pagination",
+      "name": "Process Pagination Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 200]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "value": 1
+      },
+      "id": "rate-limit-delay",
+      "name": "Rate Limit Delay",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1380, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-continue",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-continue",
+      "name": "Continue Pagination?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1580, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final processing - all products collected\nconst data = $json;\nconst allProducts = data.allProducts || [];\n\nconsole.log(`\\n🎉 Pagination complete!`);\nconsole.log(`📊 Final Summary:`);\nconsole.log(`   - Total products: ${allProducts.length}`);\nconsole.log(`   - Pages processed: ${data.fetchedPages}`);\nconsole.log(`   - Errors: ${(data.errors || []).length}`);\n\nif ((data.errors || []).length > 0) {\n  console.log(`⚠️  Errors:`);\n  data.errors.forEach(err => {\n    console.log(`   - Page ${err.page}: ${err.error}`);\n  });\n}\n\n// Simple AI optimization\nconst optimizedProducts = allProducts.map((product, index) => {\n  const contentParts = [];\n  if (product.name) contentParts.push(`Product: ${product.name}`);\n  if (product.productNumber) contentParts.push(`SKU: ${product.productNumber}`);\n  if (product.description) {\n    const cleanDesc = product.description.replace(/<[^>]*>/g, '').substring(0, 200);\n    contentParts.push(`Description: ${cleanDesc}`);\n  }\n  \n  return {\n    id: parseInt(product.id) || index + 1,\n    payload: {\n      content: contentParts.join(' | '),\n      product: {\n        id: product.id,\n        name: product.name,\n        sku: product.productNumber,\n        description: product.description,\n        stock: product.availableStock || 0\n      },\n      _metadata: {\n        source: 'shopware',\n        indexed: new Date().toISOString()\n      }\n    },\n    vector: Array.from({length: 384}, () => Math.random()) // Smaller vector for testing\n  };\n});\n\nconsole.log(`\\n✨ Prepared ${optimizedProducts.length} products for Qdrant`);\n\nreturn optimizedProducts;"
+      },
+      "id": "finalize-products",
+      "name": "Finalize Products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_test",
+        "httpMethod": "DELETE",
+        "options": {
+          "timeout": 10000
+        },
+        "continueOnFail": true
+      },
+      "id": "delete-collection",
+      "name": "Delete Test Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1980, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_test",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"vectors\": {\n    \"size\": 384,\n    \"distance\": \"Cosine\"\n  }\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "create-collection",
+      "name": "Create Test Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1980, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "id": "batch-upload",
+      "name": "Batch for Upload",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1980, 500]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6333/collections/shopware_test/points",
+        "httpMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ points: $json }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "upload-to-qdrant",
+      "name": "Upload to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2180, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final success report\nconst batchData = $json;\nconst batchSize = Array.isArray(batchData) ? batchData.length : 1;\n\nconsole.log(`📤 Uploaded batch with ${batchSize} products to Qdrant`);\n\nreturn [{\n  json: {\n    success: true,\n    message: `Successfully uploaded batch of ${batchSize} products`,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "upload-success",
+      "name": "Upload Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2380, 500]
+    }
+  ],
+  "connections": {
+    "manual-trigger": {
+      "main": [
+        [
+          {
+            "node": "init-sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "init-sync": {
+      "main": [
+        [
+          {
+            "node": "debug-data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "debug-data": {
+      "main": [
+        [
+          {
+            "node": "check-has-more",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check-has-more": {
+      "main": [
+        [
+          {
+            "node": "fetch-products-page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "finalize-products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fetch-products-page": {
+      "main": [
+        [
+          {
+            "node": "process-pagination",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "process-pagination": {
+      "main": [
+        [
+          {
+            "node": "rate-limit-delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rate-limit-delay": {
+      "main": [
+        [
+          {
+            "node": "check-continue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check-continue": {
+      "main": [
+        [
+          {
+            "node": "check-has-more",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "finalize-products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "finalize-products": {
+      "main": [
+        [
+          {
+            "node": "delete-collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "delete-collection": {
+      "main": [
+        [
+          {
+            "node": "create-collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create-collection": {
+      "main": [
+        [
+          {
+            "node": "batch-upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "batch-upload": {
+      "main": [
+        [
+          {
+            "node": "upload-to-qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "upload-to-qdrant": {
+      "main": [
+        [
+          {
+            "node": "upload-success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [
+    {
+      "id": "debug",
+      "name": "debug"
+    },
+    {
+      "id": "fixed-if-conditions",
+      "name": "fixed-if-conditions"
+    }
+  ]
+}
